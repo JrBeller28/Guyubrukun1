@@ -1365,7 +1365,8 @@ function validateRequest(schema: z.ZodObject<any>) {
 // ==========================================
 function enforceRoles(allowed: string[]) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const role = (req.headers['x-user-role'] as string) || 'warga';
+    const userAuth = getAuthUser(req);
+    const role = userAuth?.role || (req.headers['x-user-role'] as string) || 'warga';
     if (role === 'developer' || allowed.includes(role)) {
       next();
     } else {
@@ -3237,7 +3238,56 @@ app.put("/api/warga/:id", async (req, res) => {
     }
 
     const beforeData = user.toObject();
-    const { nama, noHp, status, umur, tglLahir, jenisKelamin, noKk, alamat } = req.body;
+    const { nama, username, newUsername, noHp, status, umur, tglLahir, jenisKelamin, noKk, alamat } = req.body;
+
+    // Handle username update by Ketua RT / Pengurus or account owner
+    const targetUsername = newUsername !== undefined ? newUsername : username;
+    if (targetUsername !== undefined) {
+      const isKetuaOrPengurus = ['admin', 'developer', 'pengurus', 'sekretaris', 'bendahara'].includes(actorRole);
+      if (!isKetuaOrPengurus && actorId !== user.id) {
+        return res.status(403).json({ error: "Akses ditolak: Hanya Ketua RT / Pengurus yang dapat memperbarui username warga lain." });
+      }
+      const cleanTargetUser = String(targetUsername).trim().toLowerCase().replace(/\s+/g, '');
+      if (cleanTargetUser !== '' && cleanTargetUser !== (user.username || '').toLowerCase()) {
+        if (cleanTargetUser.length < 3) {
+          return res.status(400).json({ error: "Username baru minimal harus 3 karakter." });
+        }
+        if (cleanTargetUser.length > 30) {
+          return res.status(400).json({ error: "Username baru maksimal 30 karakter." });
+        }
+        if (!/^[a-zA-Z0-9._-]+$/.test(cleanTargetUser)) {
+          return res.status(400).json({ error: "Username hanya boleh berisi huruf, angka, titik, strip (-), atau garis bawah (_)." });
+        }
+        const duplicateUsername = await UserModel.findOne({
+          _id: { $ne: user._id },
+          username: new RegExp(`^${cleanTargetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        });
+        if (duplicateUsername) {
+          return res.status(400).json({
+            error: `Username "${cleanTargetUser}" sudah digunakan oleh pengguna lain (${duplicateUsername.nama || duplicateUsername.username}). Silakan pilih username lain.`
+          });
+        }
+        const oldUsername = user.username;
+        user.username = cleanTargetUser;
+        const actorLabel = userAuth?.nama || (isKetuaOrPengurus ? 'Ketua RT' : 'Pengguna');
+        await logAudit(
+          user.rtId || rtId,
+          actorLabel,
+          "KETUA_RT_UPDATE_USERNAME",
+          `Memperbarui username warga ${user.nama} dari @${oldUsername} menjadi @${cleanTargetUser}`,
+          { username: oldUsername },
+          { username: cleanTargetUser }
+        );
+        await addNotification(
+          user.rtId || rtId,
+          "Username Diperbarui oleh Ketua RT",
+          `Username akun ${user.nama} telah diperbarui menjadi @${cleanTargetUser} oleh ${actorLabel}.`,
+          actorLabel,
+          "warga",
+          user.id
+        );
+      }
+    }
 
     if (nama !== undefined) user.nama = nama.trim();
     if (noHp !== undefined) user.noHp = noHp.trim();
@@ -3280,6 +3330,90 @@ app.put("/api/warga/:id", async (req, res) => {
   } catch (error: any) {
     console.error("Gagal update warga:", error);
     res.status(500).json({ error: error?.message || "Internal Server Error" });
+  }
+});
+
+// Dedicated endpoint: Ketua RT & Pengurus update username warga
+app.put("/api/warga/:id/username", enforceRoles(['admin', 'developer', 'sekretaris', 'pengurus']), async (req, res) => {
+  const rtId = getAuthorizedRtId(req);
+  const targetId = req.params.id;
+  const { newUsername, username } = req.body;
+  const userAuth = getAuthUser(req);
+  const actorName = userAuth?.nama || 'Ketua RT';
+
+  try {
+    await connectDB();
+    const user = await UserModel.findOne({
+      rtId,
+      $or: [{ id: targetId }, { username: targetId }]
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "Data warga tidak ditemukan di RT ini." });
+    }
+
+    const cleanUsername = String(newUsername || username || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!cleanUsername) {
+      return res.status(400).json({ error: "Username baru tidak boleh kosong." });
+    }
+    if (cleanUsername.length < 3) {
+      return res.status(400).json({ error: "Username baru minimal harus 3 karakter." });
+    }
+    if (cleanUsername.length > 30) {
+      return res.status(400).json({ error: "Username baru maksimal 30 karakter." });
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(cleanUsername)) {
+      return res.status(400).json({ error: "Username hanya boleh berisi huruf, angka, titik, strip (-), atau garis bawah (_)." });
+    }
+
+    const duplicateUsername = await UserModel.findOne({
+      _id: { $ne: user._id },
+      username: new RegExp(`^${cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+    });
+    if (duplicateUsername) {
+      return res.status(400).json({
+        error: `Username "${cleanUsername}" sudah digunakan oleh akun lain (${duplicateUsername.nama || duplicateUsername.username}). Silakan pilih username lain.`
+      });
+    }
+
+    const oldUsername = user.username;
+    user.username = cleanUsername;
+    await user.save();
+
+    await logAudit(
+      user.rtId || rtId,
+      actorName,
+      "KETUA_RT_UPDATE_USERNAME",
+      `Ketua RT memperbarui username warga ${user.nama} dari @${oldUsername} menjadi @${cleanUsername}`,
+      { username: oldUsername },
+      { username: cleanUsername }
+    );
+    await addNotification(
+      user.rtId || rtId,
+      "Username Diperbarui oleh Ketua RT",
+      `Username akun ${user.nama} telah diperbarui menjadi @${cleanUsername} oleh ${actorName}.`,
+      actorName,
+      "warga",
+      user.id
+    );
+
+    broadcastEvent('update', {
+      type: 'users',
+      rtId: user.rtId || rtId,
+      action: 'update',
+      title: 'Username Warga Diperbarui',
+      message: `Username ${user.nama} telah diperbarui menjadi @${cleanUsername} oleh ${actorName}.`,
+      updaterName: actorName,
+      time: new Date().toISOString()
+    });
+
+    return res.json({
+      message: `Username warga berhasil diperbarui menjadi @${cleanUsername}!`,
+      user: user.toObject()
+    });
+  } catch (err: any) {
+    console.error("Error in Ketua RT update username:", err);
+    return res.status(500).json({ error: err.message || "Gagal memperbarui username warga." });
   }
 });
 

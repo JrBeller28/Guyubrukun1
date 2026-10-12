@@ -4753,7 +4753,7 @@ function MainApp({ user: originalUser, onLogout, onUpdateUser }: { user: any; on
     
     const handleUpdate = (e: any) => {
       const type = typeof e.detail === 'string' ? e.detail : e.detail?.type;
-      if (type === 'notifications') {
+      if (type === 'notifications' || type === 'users' || type === 'warga') {
         fetchNotifications();
       }
       if (type === 'menu_permissions') {

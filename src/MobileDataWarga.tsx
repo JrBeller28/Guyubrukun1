@@ -8,6 +8,7 @@ const icons = {
   lainnya: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>,
   edit: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
   delete: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+  trash: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
   back: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>,
   sparkles: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 3v4M3 5h4M6 17v4M4 19h4m13-4v4m-2-2h4m-5-9V5m-2 2h4M9 12a3 3 0 116 0 3 3 0 01-6 0z" /></svg>,
   document: (props: any) => <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
@@ -198,6 +199,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
   const [editingWarga, setEditingWarga] = useState<any>(null);
   const [wargaEditForm, setWargaEditForm] = useState({
     id: '',
+    username: '',
     nama: '',
     noHp: '',
     status: '',
@@ -207,6 +209,16 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
     noKk: '',
     alamat: ''
   });
+
+  // State Konfirmasi Hapus Warga
+  const [wargaToDelete, setWargaToDelete] = useState<any | null>(null);
+  const [isDeletingWarga, setIsDeletingWarga] = useState(false);
+
+  // State Khusus Ketua RT Update Username Warga
+  const [showKetuaRtUsernameModal, setShowKetuaRtUsernameModal] = useState(false);
+  const [usernameTargetWarga, setUsernameTargetWarga] = useState<any | null>(null);
+  const [newUsernameInput, setNewUsernameInput] = useState('');
+  const [isSavingKetuaRtUsername, setIsSavingKetuaRtUsername] = useState(false);
 
   // State untuk klik kategori usia (Balita, Anak, Remaja, Dewasa, Lansia) bagi semua peran
   const [selectedAgeCategory, setSelectedAgeCategory] = useState<'balita' | 'anak' | 'remaja' | 'dewasa' | 'lansia' | null>(null);
@@ -797,11 +809,24 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showStatusBanner(`Data warga ${wargaEditForm.nama} (Jenis Kelamin: ${wargaEditForm.jenisKelamin}) berhasil diperbarui!`);
+        const updatedCitizen = data.user || wargaEditForm;
+        const msg = isKetuaRT && wargaEditForm.username && wargaEditForm.username !== editingWarga?.username
+          ? `Data dan username warga ${wargaEditForm.nama} (@${wargaEditForm.username}) berhasil diperbarui!`
+          : `Data warga ${wargaEditForm.nama} (Jenis Kelamin: ${wargaEditForm.jenisKelamin}) berhasil diperbarui!`;
+        playNotificationSound();
+        triggerHaptic();
+        setRealtimeToast({
+          id: Date.now().toString(),
+          title: 'Data Warga Diperbarui',
+          message: msg,
+          time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB',
+          type: 'update'
+        });
+        showStatusBanner(msg);
         setShowWargaEditModal(false);
         setEditingWarga(null);
         // Instant local state update
-        setWargaData((prev: any[]) => prev.map((w: any) => w.id === wargaEditForm.id ? { ...w, ...wargaEditForm, umur: Number(wargaEditForm.umur) || w.umur } : w));
+        setWargaData((prev: any[]) => prev.map((w: any) => w.id === wargaEditForm.id ? { ...w, ...wargaEditForm, ...updatedCitizen, umur: Number(wargaEditForm.umur) || w.umur } : w));
         fetchWarga();
         fetchAllWargaFull();
         if (isKetuaRT) fetchAllKkWargaForKetuaRT();
@@ -813,6 +838,142 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
       showStatusBanner(err?.message || 'Terjadi kesalahan saat memperbarui data warga.', true);
     } finally {
       setIsSavingMember(false);
+    }
+  };
+
+  // Konfirmasi & Eksekusi Hapus Warga oleh Ketua RT / Admin
+  const handleConfirmDeleteWarga = async () => {
+    if (!wargaToDelete) return;
+    setIsDeletingWarga(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await apiFetch(`/api/warga/${encodeURIComponent(wargaToDelete.id)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const deletedName = wargaToDelete.nama || 'Warga';
+        const deletedUsername = wargaToDelete.username ? `@${wargaToDelete.username}` : '';
+        const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
+        const notifTitle = 'Data Warga Berhasil Dihapus';
+        const notifMsg = `Data warga "${deletedName}" ${deletedUsername} berhasil dihapus dari sistem RT (${timeStr}).`;
+        setWargaToDelete(null);
+        playNotificationSound();
+        triggerHaptic();
+        setRealtimeToast({
+          id: Date.now().toString(),
+          title: notifTitle,
+          message: notifMsg,
+          time: timeStr,
+          type: 'delete'
+        });
+        showStatusBanner(`Data warga "${deletedName}" berhasil dihapus.`);
+        window.dispatchEvent(new CustomEvent('app_data_update', {
+          detail: {
+            type: 'notifications',
+            action: 'delete',
+            title: notifTitle,
+            message: notifMsg
+          }
+        }));
+        await fetchWarga();
+        fetchAllWargaFull();
+        if (isKetuaRT) await fetchAllKkWargaForKetuaRT();
+      } else {
+        showStatusBanner(data.error || 'Gagal menghapus data warga.', true);
+      }
+    } catch (err: any) {
+      console.error("Gagal hapus data warga:", err);
+      showStatusBanner(err?.message || 'Terjadi kesalahan saat menghapus data warga.', true);
+    } finally {
+      setIsDeletingWarga(false);
+    }
+  };
+
+  // Handler Khusus Ketua RT / Pengurus untuk Update Username Warga
+  const handleSaveKetuaRtUsername = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!usernameTargetWarga) return;
+    const clean = newUsernameInput.trim().toLowerCase().replace(/\s+/g, '');
+    if (!clean) {
+      showStatusBanner('Username baru tidak boleh kosong.', true);
+      return;
+    }
+    if (clean.length < 3) {
+      showStatusBanner('Username baru minimal harus 3 karakter.', true);
+      return;
+    }
+    if (clean.length > 30) {
+      showStatusBanner('Username baru maksimal 30 karakter.', true);
+      return;
+    }
+    if (!/^[a-zA-Z0-9._-]+$/.test(clean)) {
+      showStatusBanner('Username hanya boleh berisi huruf, angka, titik, strip (-), atau garis bawah (_).', true);
+      return;
+    }
+
+    setIsSavingKetuaRtUsername(true);
+    try {
+      const token = localStorage.getItem('token');
+      let res = await apiFetch(`/api/warga/${encodeURIComponent(usernameTargetWarga.id)}/username`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newUsername: clean, username: clean })
+      });
+
+      if (!res.ok && res.status === 404) {
+        res = await apiFetch(`/api/warga/${encodeURIComponent(usernameTargetWarga.id)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ newUsername: clean, username: clean })
+        });
+      }
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
+        const msg = `Username warga "${usernameTargetWarga.nama}" berhasil diperbarui menjadi @${clean}!`;
+        playNotificationSound();
+        triggerHaptic();
+        setRealtimeToast({
+          id: Date.now().toString(),
+          title: 'Username Warga Diperbarui',
+          message: `${msg} (${timeStr})`,
+          time: timeStr,
+          type: 'update'
+        });
+        showStatusBanner(msg);
+        setShowKetuaRtUsernameModal(false);
+        setUsernameTargetWarga(null);
+        // Instant local update
+        setWargaData((prev: any[]) => prev.map((w: any) => w.id === usernameTargetWarga.id ? { ...w, username: clean } : w));
+        window.dispatchEvent(new CustomEvent('app_data_update', {
+          detail: {
+            type: 'notifications',
+            title: 'Username Warga Diperbarui',
+            message: msg
+          }
+        }));
+        await fetchWarga();
+        fetchAllWargaFull();
+        if (isKetuaRT) await fetchAllKkWargaForKetuaRT();
+      } else {
+        showStatusBanner(data.error || 'Gagal memperbarui username warga.', true);
+      }
+    } catch (err: any) {
+      console.error("Gagal update username:", err);
+      showStatusBanner(err?.message || 'Terjadi kesalahan saat memperbarui username warga.', true);
+    } finally {
+      setIsSavingKetuaRtUsername(false);
     }
   };
 
@@ -2982,6 +3143,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                 e.stopPropagation();
                                 setWargaEditForm({
                                   id: warga.id,
+                                  username: warga.username || '',
                                   nama: warga.nama || '',
                                   noHp: warga.noHp || '',
                                   status: warga.status || 'Warga Tetap',
@@ -2999,6 +3161,22 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                             >
                               <icons.edit className="w-3.5 h-3.5" />
                               <span>Edit Warga</span>
+                            </button>
+                          )}
+                          {(isKetuaRT || isAdmin || currentUser?.role === 'developer' || currentUser?.role === 'pengurus' || currentUser?.role === 'sekretaris') && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setUsernameTargetWarga(warga);
+                                setNewUsernameInput(warga.username || '');
+                                setShowKetuaRtUsernameModal(true);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-extrabold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title="Perbarui username akun warga (Wewenang Ketua RT)"
+                            >
+                              <span className="font-mono font-black text-amber-600">@</span>
+                              <span>Username</span>
                             </button>
                           )}
                           <button
@@ -3102,8 +3280,33 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                   <option value="tidak_aktif">Nonaktif / Belum disetujui</option>
                                 </select>
                               </div>
-                              <button onClick={(e) => { e.stopPropagation(); apiFetch(`/api/warga/${warga.id}`, { method: 'DELETE' }).then(() => { showStatusBanner('Warga berhasil dihapus.'); fetchWarga(); if (isKetuaRT) fetchAllKkWargaForKetuaRT(); }); }} className="text-red-600 bg-red-50 hover:bg-red-100 font-semibold px-3 py-2 rounded-xl text-xs transition-colors h-[34px]">
-                                Hapus Warga
+                              {(isKetuaRT || isAdmin || currentUser?.role === 'developer' || currentUser?.role === 'pengurus' || currentUser?.role === 'sekretaris') && (
+                                <button 
+                                  type="button"
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    setUsernameTargetWarga(warga);
+                                    setNewUsernameInput(warga.username || '');
+                                    setShowKetuaRtUsernameModal(true);
+                                  }} 
+                                  className="text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 font-bold px-3 py-2 rounded-xl text-xs transition-colors h-[34px] cursor-pointer flex items-center gap-1.5"
+                                  title="Perbarui username akun warga"
+                                >
+                                  <span className="font-mono font-black text-amber-700">@</span>
+                                  <span>Ubah Username</span>
+                                </button>
+                              )}
+                              <button 
+                                type="button"
+                                onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  setWargaToDelete(warga);
+                                }} 
+                                className="text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 font-bold px-3 py-2 rounded-xl text-xs transition-colors h-[34px] cursor-pointer flex items-center gap-1.5"
+                                title="Hapus data warga dari RT"
+                              >
+                                <icons.trash className="w-3.5 h-3.5" />
+                                <span>Hapus Warga</span>
                               </button>
                             </div>
                           )}
@@ -3687,6 +3890,37 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
               </div>
 
               <form onSubmit={handleSaveWarga} className="space-y-4">
+                {/* Field Username Khusus Ketua RT */}
+                {(isKetuaRT || currentUser?.role === 'developer' || currentUser?.role === 'admin' || currentUser?.role === 'pengurus') && (
+                  <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                        <span>👑 Username Akun Warga</span>
+                        <span className="text-[10px] font-extrabold bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full">
+                          Hak Akses Ketua RT
+                        </span>
+                      </label>
+                      <span className="text-[10px] text-amber-700 font-bold">
+                        3-30 Karakter
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-2.5 text-sm font-black text-amber-600">@</span>
+                      <input
+                        type="text"
+                        value={wargaEditForm.username}
+                        onChange={e => setWargaEditForm({ ...wargaEditForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                        placeholder="username_warga"
+                        required
+                        className="w-full text-sm font-mono font-bold pl-8 pr-3 py-2 bg-white border border-amber-300 rounded-xl focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all outline-none text-slate-800"
+                      />
+                    </div>
+                    <p className="text-[10px] text-amber-800/90 leading-tight">
+                      Sebagai Ketua RT, Anda dapat memperbarui username akun warga ini kapan saja jika diperlukan.
+                    </p>
+                  </div>
+                )}
+
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">Nama Lengkap</label>
                   <input
@@ -3795,6 +4029,22 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                   >
                     Batal
                   </button>
+                  {(isKetuaRT || isAdmin || currentUser?.role === 'developer') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = editingWarga;
+                        setShowWargaEditModal(false);
+                        setEditingWarga(null);
+                        setWargaToDelete(target);
+                      }}
+                      className="py-3 px-3.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1"
+                      title="Hapus data warga ini dari RT"
+                    >
+                      <icons.trash className="w-4 h-4" />
+                      <span className="hidden sm:inline">Hapus Warga</span>
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={isSavingMember}
@@ -3811,6 +4061,209 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL UPDATE USERNAME WARGA KHUSUS KETUA RT */}
+      <AnimatePresence>
+        {showKetuaRtUsernameModal && usernameTargetWarga && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[130] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-amber-100"
+            >
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-black text-lg border border-amber-200">
+                    @
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-base flex items-center gap-1.5">
+                      <span>Ubah Username Warga</span>
+                      <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                        Ketua RT
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Wewenang khusus pembaruan identitas akun
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSavingKetuaRtUsername}
+                  onClick={() => {
+                    setShowKetuaRtUsernameModal(false);
+                    setUsernameTargetWarga(null);
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer text-sm font-bold disabled:opacity-50"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Data Warga Card */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl mb-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Nama Warga:</span>
+                  <span className="font-extrabold text-slate-900">{usernameTargetWarga.nama}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-medium">Username Saat Ini:</span>
+                  <span className="font-mono font-bold text-slate-700 bg-slate-200/70 px-2 py-0.5 rounded-lg">
+                    @{usernameTargetWarga.username || '-'}
+                  </span>
+                </div>
+                {usernameTargetWarga.alamat && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Alamat:</span>
+                    <span className="font-semibold text-slate-800">{usernameTargetWarga.alamat}</span>
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleSaveKetuaRtUsername} className="space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">
+                      Username Baru <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-amber-700 font-bold">
+                      3-30 Karakter
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-sm font-black text-amber-600">@</span>
+                    <input
+                      type="text"
+                      value={newUsernameInput}
+                      onChange={e => setNewUsernameInput(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                      placeholder="username_baru"
+                      required
+                      autoFocus
+                      disabled={isSavingKetuaRtUsername}
+                      className="w-full text-sm font-mono font-bold pl-8 pr-3 py-2.5 bg-amber-50/40 border border-amber-300 rounded-xl focus:bg-white focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all outline-none text-slate-900"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Hanya huruf, angka, titik, strip (-), dan garis bawah (_). Perubahan ini langsung disinkronkan ke seluruh sistem dan dicatat pada notifikasi RT.
+                  </p>
+                </div>
+
+                <div className="flex gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    disabled={isSavingKetuaRtUsername}
+                    onClick={() => {
+                      setShowKetuaRtUsernameModal(false);
+                      setUsernameTargetWarga(null);
+                    }}
+                    className="flex-1 py-3 text-xs sm:text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingKetuaRtUsername}
+                    className="flex-1 py-3 text-xs sm:text-sm font-extrabold text-white bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 active:scale-98 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isSavingKetuaRtUsername ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-mono font-black text-sm">✓</span>
+                        <span>Simpan Username</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL KONFIRMASI HAPUS WARGA */}
+      <AnimatePresence>
+        {wargaToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[130] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-rose-100"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 border border-rose-200">
+                <icons.trash className="w-7 h-7" />
+              </div>
+
+              <h4 className="text-lg font-black text-slate-900 text-center">
+                Konfirmasi Hapus Warga
+              </h4>
+              <p className="text-xs text-slate-500 text-center mt-1">
+                Tindakan ini permanen dan tidak dapat dibatalkan.
+              </p>
+
+              <div className="my-5 p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Nama Warga:</span>
+                  <span className="font-extrabold text-slate-900">{wargaToDelete.nama}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Username Akun:</span>
+                  <span className="font-mono font-bold text-teal-700">@{wargaToDelete.username || '-'}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Alamat:</span>
+                  <span className="font-semibold text-slate-800">{wargaToDelete.alamat || '-'}</span>
+                </div>
+                {wargaToDelete.members && wargaToDelete.members.length > 0 && (
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60">
+                    <span className="text-slate-500 font-medium">Anggota Keluarga:</span>
+                    <span className="font-semibold text-rose-600">{wargaToDelete.members.length} Jiwa</span>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 p-3 rounded-xl leading-relaxed text-center mb-5 font-medium">
+                ⚠️ Apakah Anda yakin ingin menghapus data <strong>{wargaToDelete.nama}</strong>? Seluruh data akun dan dokumen keluarga terkait akan dihapus dari sistem RT.
+              </p>
+
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  disabled={isDeletingWarga}
+                  onClick={() => setWargaToDelete(null)}
+                  className="flex-1 py-3 text-xs sm:text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingWarga}
+                  onClick={handleConfirmDeleteWarga}
+                  className="flex-1 py-3 text-xs sm:text-sm font-extrabold text-white bg-rose-600 hover:bg-rose-700 active:scale-98 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeletingWarga ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Menghapus...</span>
+                    </>
+                  ) : (
+                    <>
+                      <icons.trash className="w-4 h-4" />
+                      <span>Ya, Hapus Warga</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
