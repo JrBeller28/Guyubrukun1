@@ -32,8 +32,14 @@ async function connectDB() {
   }
   try {
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 20,
+      minPoolSize: 2,
+      retryWrites: true,
+      retryReads: true,
+      readPreference: 'secondaryPreferred',
     });
     isDbConnected = true;
     console.log("Connected securely to MongoDB database system.");
@@ -274,8 +280,8 @@ const UserSchema = new mongoose.Schema({
   }],
   photo: String,
   noKk: { type: String },
-  dokumenKk: mongoose.Schema.Types.Mixed,
-  dokumenKtp: mongoose.Schema.Types.Mixed,
+  dokumenKk: { type: mongoose.Schema.Types.Mixed, select: false },
+  dokumenKtp: { type: mongoose.Schema.Types.Mixed, select: false },
   hasChangedUsername: { type: Boolean, default: false },
   usernameChangedAt: { type: Date },
 }, { timestamps: true, strict: false });
@@ -1243,7 +1249,7 @@ async function initDb(rtId: string = '') {
       }
 
       // Backfill existing users with noKk extracted from their uploaded dokumenKk
-      const usersToBackfill = await UserModel.find({ rtId: rtId || 'rt01', dokumenKk: { $exists: true, $nin: ['', null] } });
+      const usersToBackfill = await UserModel.find({ rtId: rtId || 'rt01', dokumenKk: { $exists: true, $nin: ['', null] } }).select('+dokumenKk');
       for (const u of usersToBackfill) {
         if (!u.noKk || String(u.noKk).trim() === '') {
           const extractedNo = extractNoKkFromDocument(String(u.dokumenKk), u.username, u.nama);
@@ -2336,7 +2342,7 @@ app.get("/api/warga-dokumen-kk", enforceRoles(['admin', 'sekretaris']), async (r
   const rtId = getAuthorizedRtId(req);
   try {
     await connectDB();
-    const users = await UserModel.find({ rtId, role: { $ne: 'developer' } }).lean();
+    const users = await UserModel.find({ rtId, role: { $ne: 'developer' } }).select('+dokumenKk').lean();
     const formatted = users.map((u: any) => {
       const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
       const resolvedNoKk = u.noKk || (hasKk ? extractNoKkFromDocument(String(u.dokumenKk), u.username, u.nama) : '');
@@ -2613,9 +2619,9 @@ app.post("/api/warga/:id/extract-kk", async (req, res) => {
 
   try {
     await connectDB();
-    let user = await UserModel.findOne({ id: targetId, rtId });
+    let user = await UserModel.findOne({ id: targetId, rtId }).select('+dokumenKk');
     if (!user) {
-      user = await UserModel.findOne({ id: targetId });
+      user = await UserModel.findOne({ id: targetId }).select('+dokumenKk');
     }
     if (!user) {
       return res.status(404).json({ error: "Data warga tidak ditemukan." });
@@ -3072,7 +3078,7 @@ app.get("/api/warga/:id", async (req, res) => {
   const rtId = getAuthorizedRtId(req);
   try {
     await connectDB();
-    const user: any = await UserModel.findOne({ id: req.params.id, rtId }).lean();
+    const user: any = await UserModel.findOne({ id: req.params.id, rtId }).select('+dokumenKk +dokumenKtp').lean();
     if (user) {
       if (!user.noKk && user.dokumenKk && String(user.dokumenKk).trim() !== '') {
         const resolvedNoKk = extractNoKkFromDocument(String(user.dokumenKk), user.username, user.nama);
@@ -4730,7 +4736,7 @@ app.get("/api/backup/export", enforceRoles(['admin']), async (req, res) => {
   try {
     // Extract full snapshots of all collections
     const [users, kas, iuran, voting, acara, laporan, surat, umkm, tamu, media, darurat, logs] = await Promise.all([
-      UserModel.find({ rtId }).lean(),
+      UserModel.find({ rtId }).select('+dokumenKk +dokumenKtp').lean(),
       KasModel.find({ rtId }).lean(),
       IuranModel.find({ rtId }).lean(),
       VotingModel.find({ rtId }).lean(),
@@ -4903,7 +4909,31 @@ export async function getDashboardDataForRt(rawRtId?: string) {
 
   await connectDB();
   const [users, kas, iuran, laporan, acara, media] = await Promise.all([
-    UserModel.find({ rtId: normRt, role: { $ne: 'developer' } }).select('id nama role status isApproved alamat noHp photo umur tglLahir jenisKelamin members dokumenKk dokumenKtp').lean(),
+    UserModel.aggregate([
+      { $match: { rtId: normRt, role: { $ne: 'developer' } } },
+      { $project: {
+          id: 1,
+          nama: 1,
+          role: 1,
+          status: 1,
+          isApproved: 1,
+          alamat: 1,
+          noHp: 1,
+          photo: 1,
+          umur: 1,
+          tglLahir: 1,
+          jenisKelamin: 1,
+          members: 1,
+          hasKk: { $eq: [{ $type: "$dokumenKk" }, "string"] },
+          hasKtp: {
+            $or: [
+              { $and: [{ $eq: [{ $type: "$dokumenKtp" }, "string"] }, { $ne: ["$dokumenKtp", ""] }] },
+              { $and: [{ $eq: [{ $type: "$dokumenKtp" }, "array"] }, { $gt: [{ $size: "$dokumenKtp" }, 0] }] }
+            ]
+          }
+        }
+      }
+    ]),
     KasModel.find({ rtId: normRt }).select('type amount status category createdAt').lean(),
     IuranModel.find({ rtId: normRt }).select('bulan status nominal').lean(),
     LaporanModel.find({ rtId: normRt }).select('id judul deskripsi status nama userName kategori createdAt').lean(),
@@ -4938,6 +4968,7 @@ export async function getDashboardDataForRt(rawRtId?: string) {
   let anakCount = 0;
   let remajaCount = 0;
   let dewasaCount = 0;
+  let praLansiaCount = 0;
   let lansiaCount = 0;
   let lakiLakiCount = 0;
   let perempuanCount = 0;
@@ -4947,7 +4978,8 @@ export async function getDashboardDataForRt(rawRtId?: string) {
     if (age <= 4) balitaCount++;
     else if (age <= 12) anakCount++;
     else if (age <= 20) remajaCount++;
-    else if (age <= 70) dewasaCount++;
+    else if (age <= 44) dewasaCount++;
+    else if (age <= 59) praLansiaCount++;
     else lansiaCount++;
   };
 
@@ -4967,8 +4999,8 @@ export async function getDashboardDataForRt(rawRtId?: string) {
   let docUploaded = 0;
   residentUsers.forEach((u: any) => {
     totalWarga += (u.members?.length || 0);
-    const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
-    const hasKtp = Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '');
+    const hasKk = Boolean(u.hasKk || (u.dokumenKk && String(u.dokumenKk).trim() !== ''));
+    const hasKtp = Boolean(u.hasKtp || (Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '')));
     if (hasKk || hasKtp) {
       docUploaded++;
     }
@@ -4988,12 +5020,13 @@ export async function getDashboardDataForRt(rawRtId?: string) {
     }
   });
   const docNotUploaded = Math.max(0, jumlahKK - docUploaded);
-  const totalWithAge = balitaCount + anakCount + remajaCount + dewasaCount + lansiaCount;
+  const totalWithAge = balitaCount + anakCount + remajaCount + dewasaCount + praLansiaCount + lansiaCount;
   const demographics = {
     balita: balitaCount,
     anak: anakCount,
     remaja: remajaCount,
     dewasa: dewasaCount,
+    praLansia: praLansiaCount,
     lansia: lansiaCount,
     lakiLaki: lakiLakiCount,
     perempuan: perempuanCount,
@@ -5002,8 +5035,9 @@ export async function getDashboardDataForRt(rawRtId?: string) {
       { key: 'balita', name: 'Balita', range: '0 - 4 Thn', count: balitaCount, fill: '#3b82f6', desc: 'Usia dini & pemantauan tumbuh kembang Posyandu' },
       { key: 'anak', name: 'Anak', range: '5 - 12 Thn', count: anakCount, fill: '#10b981', desc: 'Usia sekolah dasar & pendidikan karakter anak' },
       { key: 'remaja', name: 'Remaja', range: '13 - 20 Thn', count: remajaCount, fill: '#8b5cf6', desc: `Generasi muda & kepemudaan Karang Taruna ${rtLabel}` },
-      { key: 'dewasa', name: 'Dewasa', range: '21 - 70 Thn', count: dewasaCount, fill: '#f97316', desc: 'Usia produktif, kepala keluarga & penggerak warga' },
-      { key: 'lansia', name: 'Lansia', range: '> 70 Thn', count: lansiaCount, fill: '#f43f5e', desc: 'Warga senior & prioritas layanan kesehatan lansia' }
+      { key: 'dewasa', name: 'Dewasa', range: '21 - 44 Thn', count: dewasaCount, fill: '#f97316', desc: 'Usia produktif, kepala keluarga & penggerak warga' },
+      { key: 'praLansia', name: 'Pra Lansia', range: '45 - 59 Thn', count: praLansiaCount, fill: '#eab308', desc: 'Usia persiapan lanjut usia & pemantauan kesehatan berkala' },
+      { key: 'lansia', name: 'Lansia', range: '> 59 Thn', count: lansiaCount, fill: '#f43f5e', desc: 'Warga senior & prioritas layanan kesehatan lansia' }
     ]
   };
 

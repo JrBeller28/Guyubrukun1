@@ -2502,8 +2502,9 @@ const MobileDemographicsWidget = ({
       { key: 'balita', name: 'Balita', range: '0 - 4 Thn', count: 0, fill: '#3b82f6' },
       { key: 'anak', name: 'Anak', range: '5 - 12 Thn', count: 0, fill: '#10b981' },
       { key: 'remaja', name: 'Remaja', range: '13 - 20 Thn', count: 0, fill: '#8b5cf6' },
-      { key: 'dewasa', name: 'Dewasa', range: '21 - 70 Thn', count: 0, fill: '#f97316' },
-      { key: 'lansia', name: 'Lansia', range: '> 70 Thn', count: 0, fill: '#f43f5e' }
+      { key: 'dewasa', name: 'Dewasa', range: '21 - 44 Thn', count: 0, fill: '#f97316' },
+      { key: 'praLansia', name: 'Pra Lansia', range: '45 - 59 Thn', count: 0, fill: '#eab308' },
+      { key: 'lansia', name: 'Lansia', range: '> 59 Thn', count: 0, fill: '#f43f5e' }
     ]
   );
   const [jumlahKK, setJumlahKK] = useState<number>(cached?.jumlahKK || 0);
@@ -2557,13 +2558,15 @@ const MobileDemographicsWidget = ({
           anak = 0,
           remaja = 0,
           dewasa = 0,
+          praLansia = 0,
           lansia = 0;
         const addAge = (age: number) => {
           if (age < 0) return;
           if (age <= 4) balita++;
           else if (age <= 12) anak++;
           else if (age <= 20) remaja++;
-          else if (age <= 70) dewasa++;
+          else if (age <= 44) dewasa++;
+          else if (age <= 59) praLansia++;
           else lansia++;
         };
 
@@ -2578,8 +2581,9 @@ const MobileDemographicsWidget = ({
           { key: 'balita', name: 'Balita', range: '0 - 4 Thn', count: balita, fill: '#3b82f6' },
           { key: 'anak', name: 'Anak', range: '5 - 12 Thn', count: anak, fill: '#10b981' },
           { key: 'remaja', name: 'Remaja', range: '13 - 20 Thn', count: remaja, fill: '#8b5cf6' },
-          { key: 'dewasa', name: 'Dewasa', range: '21 - 70 Thn', count: dewasa, fill: '#f97316' },
-          { key: 'lansia', name: 'Lansia', range: '> 70 Thn', count: lansia, fill: '#f43f5e' }
+          { key: 'dewasa', name: 'Dewasa', range: '21 - 44 Thn', count: dewasa, fill: '#f97316' },
+          { key: 'praLansia', name: 'Pra Lansia', range: '45 - 59 Thn', count: praLansia, fill: '#eab308' },
+          { key: 'lansia', name: 'Lansia', range: '> 59 Thn', count: lansia, fill: '#f43f5e' }
         ];
         setGroups(nextGroups);
         setJumlahKK(users.length);

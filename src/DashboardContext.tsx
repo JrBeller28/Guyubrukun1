@@ -31,6 +31,7 @@ export interface DashboardMetrics {
     anak: number;
     remaja: number;
     dewasa: number;
+    praLansia: number;
     lansia: number;
     lakiLaki: number;
     perempuan: number;
@@ -63,6 +64,7 @@ const defaultMetrics: DashboardMetrics = {
     anak: 0,
     remaja: 0,
     dewasa: 0,
+    praLansia: 0,
     lansia: 0,
     lakiLaki: 0,
     perempuan: 0,

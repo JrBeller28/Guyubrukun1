@@ -88,8 +88,9 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
       { key: 'balita', name: 'Balita', range: '0 - 4 Thn', count: 23, fill: '#3b82f6', desc: 'Usia dini & pemantauan tumbuh kembang Posyandu' },
       { key: 'anak', name: 'Anak', range: '5 - 12 Thn', count: 20, fill: '#10b981', desc: 'Usia sekolah dasar & pendidikan karakter anak' },
       { key: 'remaja', name: 'Remaja', range: '13 - 20 Thn', count: 11, fill: '#8b5cf6', desc: `Generasi muda & kepemudaan Karang Taruna RT ${rtNum}` },
-      { key: 'dewasa', name: 'Dewasa', range: '21 - 70 Thn', count: 103, fill: '#f97316', desc: 'Usia produktif, kepala keluarga & penggerak warga' },
-      { key: 'lansia', name: 'Lansia', range: '> 70 Thn', count: 0, fill: '#f43f5e', desc: 'Warga senior & prioritas layanan kesehatan lansia' }
+      { key: 'dewasa', name: 'Dewasa', range: '21 - 44 Thn', count: 70, fill: '#f97316', desc: 'Usia produktif, kepala keluarga & penggerak warga' },
+      { key: 'praLansia', name: 'Pra Lansia', range: '45 - 59 Thn', count: 33, fill: '#eab308', desc: 'Usia persiapan lanjut usia & pemantauan kesehatan berkala' },
+      { key: 'lansia', name: 'Lansia', range: '> 59 Thn', count: 0, fill: '#f43f5e', desc: 'Warga senior & prioritas layanan kesehatan lansia' }
     ],
     pengurusList: [
       { id: 'admin', nama: 'M Adji Prasetyo', role: 'admin', jabatan: 'Ketua RT 01 / RW 21', alamat: 'Blok F No. 22', noHp: '081214007871' },
@@ -132,14 +133,16 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
           anak: 'Usia sekolah dasar & pendidikan karakter anak',
           remaja: `Generasi muda & kepemudaan Karang Taruna RT ${curRtNum}`,
           dewasa: 'Usia produktif, kepala keluarga & penggerak warga',
+          praLansia: 'Usia persiapan lanjut usia & pemantauan kesehatan berkala',
           lansia: 'Warga senior & prioritas layanan kesehatan lansia'
         };
         const updatedGroups = [
           { key: 'balita' as const, name: 'Balita', range: '0 - 4 Thn', count: d.balita ?? 0, fill: '#3b82f6', desc: descMap.balita },
           { key: 'anak' as const, name: 'Anak', range: '5 - 12 Thn', count: d.anak ?? 0, fill: '#10b981', desc: descMap.anak },
           { key: 'remaja' as const, name: 'Remaja', range: '13 - 20 Thn', count: d.remaja ?? 0, fill: '#8b5cf6', desc: descMap.remaja },
-          { key: 'dewasa' as const, name: 'Dewasa', range: '21 - 70 Thn', count: d.dewasa ?? 0, fill: '#f97316', desc: descMap.dewasa },
-          { key: 'lansia' as const, name: 'Lansia', range: '> 70 Thn', count: d.lansia ?? 0, fill: '#f43f5e', desc: descMap.lansia }
+          { key: 'dewasa' as const, name: 'Dewasa', range: '21 - 44 Thn', count: d.dewasa ?? 0, fill: '#f97316', desc: descMap.dewasa },
+          { key: 'praLansia' as const, name: 'Pra Lansia', range: '45 - 59 Thn', count: d.praLansia ?? 0, fill: '#eab308', desc: descMap.praLansia },
+          { key: 'lansia' as const, name: 'Lansia', range: '> 59 Thn', count: d.lansia ?? 0, fill: '#f43f5e', desc: descMap.lansia }
         ];
         setRtData(prev => ({
           jumlahKK: m.jumlahKK ?? prev.jumlahKK,

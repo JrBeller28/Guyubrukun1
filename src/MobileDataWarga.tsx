@@ -1117,7 +1117,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
       tglLahirRaw: string;
       tglLahirFormatted: string;
       umur: number;
-      category: 'balita' | 'anak' | 'remaja' | 'dewasa' | 'lansia';
+      category: 'balita' | 'anak' | 'remaja' | 'dewasa' | 'praLansia' | 'lansia';
     }> = [];
 
     const resolveAge = (rawAge: any, rawDob?: string): number => {
@@ -1131,11 +1131,12 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
       return isNaN(parsed) ? -1 : parsed;
     };
 
-    const getCat = (age: number): 'balita' | 'anak' | 'remaja' | 'dewasa' | 'lansia' => {
+    const getCat = (age: number): 'balita' | 'anak' | 'remaja' | 'dewasa' | 'praLansia' | 'lansia' => {
       if (age <= 4) return 'balita';
       if (age <= 12) return 'anak';
       if (age <= 20) return 'remaja';
-      if (age <= 70) return 'dewasa';
+      if (age <= 44) return 'dewasa';
+      if (age <= 59) return 'praLansia';
       return 'lansia';
     };
 
@@ -2470,14 +2471,21 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                 {
                   key: 'dewasa' as const,
                   name: 'Dewasa',
-                  range: '21 - 70 Thn',
+                  range: '21 - 44 Thn',
                   count: allPersonsList.filter(p => p.category === 'dewasa').length,
                   fill: '#f97316'
                 },
                 {
+                  key: 'praLansia' as const,
+                  name: 'Pra Lansia',
+                  range: '45 - 59 Thn',
+                  count: allPersonsList.filter(p => p.category === 'praLansia').length,
+                  fill: '#eab308'
+                },
+                {
                   key: 'lansia' as const,
                   name: 'Lansia',
-                  range: '> 70 Thn',
+                  range: '> 59 Thn',
                   count: allPersonsList.filter(p => p.category === 'lansia').length,
                   fill: '#f43f5e'
                 }
@@ -2550,7 +2558,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
               );
             })()}
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
             {[
               {
                 key: 'balita' as const,
@@ -2591,7 +2599,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
               {
                 key: 'dewasa' as const,
                 label: 'Dewasa',
-                range: '21 - 70 Thn',
+                range: '21 - 44 Thn',
                 count: allPersonsList.filter(p => p.category === 'dewasa').length,
                 bg: 'from-orange-50 to-white',
                 border: 'border-orange-200',
@@ -2601,9 +2609,21 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                 badgeBg: 'bg-orange-100 text-orange-800'
               },
               {
+                key: 'praLansia' as const,
+                label: 'Pra Lansia',
+                range: '45 - 59 Thn',
+                count: allPersonsList.filter(p => p.category === 'praLansia').length,
+                bg: 'from-amber-50 to-white',
+                border: 'border-amber-200',
+                activeRing: 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/90 shadow-md',
+                textLabel: 'text-amber-600',
+                textCount: 'text-amber-900',
+                badgeBg: 'bg-amber-100 text-amber-800'
+              },
+              {
                 key: 'lansia' as const,
                 label: 'Lansia',
-                range: '> 70 Thn',
+                range: '> 59 Thn',
                 count: allPersonsList.filter(p => p.category === 'lansia').length,
                 bg: 'from-rose-50 to-white',
                 border: 'border-rose-200',

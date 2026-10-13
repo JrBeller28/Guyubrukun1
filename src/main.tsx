@@ -54,11 +54,25 @@ if (typeof window !== 'undefined') {
   });
 }
 
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { Suspense } from 'react';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <DashboardProvider>
-      <App />
-    </DashboardProvider>
+    <ErrorBoundary>
+      <DashboardProvider>
+        <Suspense fallback={
+          <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 text-teal-600">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-xs font-semibold text-slate-500">Memuat Guyub Rukun...</p>
+            </div>
+          </div>
+        }>
+          <App />
+        </Suspense>
+      </DashboardProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
 
