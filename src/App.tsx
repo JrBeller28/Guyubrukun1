@@ -2529,7 +2529,19 @@ const MobileDemographicsWidget = ({
       const wRes = await apiFetch(`/api/warga?limit=0&summary=1&rtId=${activeRt}`);
       if (wRes.ok) {
         const wJson = await wRes.json();
-        const users = (wJson.users || []).filter((u: any) => u.role !== 'developer');
+        const isNonaktifCitizen = (u: any): boolean => {
+          if (!u) return false;
+          if (u.isApproved === false || u.isApproved === 0 || String(u.isApproved).toLowerCase() === 'false') {
+            return true;
+          }
+          const s = String(u.status || '').toLowerCase().trim();
+          if (s === 'tidak_aktif' || s === 'nonaktif' || s === 'tidak aktif' || s.includes('tidak_aktif') || s.includes('nonaktif')) {
+            return true;
+          }
+          return false;
+        };
+
+        const users = (wJson.users || []).filter((u: any) => u.role !== 'developer' && !isNonaktifCitizen(u));
         const resolveAge = (rawAge: any, rawDob?: string): number => {
           if (rawDob && /^\d{4}-\d{2}-\d{2}$/.test(String(rawDob).trim())) {
             const diff = Date.now() - new Date(String(rawDob).trim()).getTime();

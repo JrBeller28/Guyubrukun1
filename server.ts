@@ -4903,7 +4903,7 @@ export async function getDashboardDataForRt(rawRtId?: string) {
 
   await connectDB();
   const [users, kas, iuran, laporan, acara, media] = await Promise.all([
-    UserModel.find({ rtId: normRt, role: { $ne: 'developer' } }).select('id nama role status alamat noHp photo umur tglLahir jenisKelamin members dokumenKk dokumenKtp').lean(),
+    UserModel.find({ rtId: normRt, role: { $ne: 'developer' } }).select('id nama role status isApproved alamat noHp photo umur tglLahir jenisKelamin members dokumenKk dokumenKtp').lean(),
     KasModel.find({ rtId: normRt }).select('type amount status category createdAt').lean(),
     IuranModel.find({ rtId: normRt }).select('bulan status nominal').lean(),
     LaporanModel.find({ rtId: normRt }).select('id judul deskripsi status nama userName kategori createdAt').lean(),
@@ -4920,6 +4920,18 @@ export async function getDashboardDataForRt(rawRtId?: string) {
     }
     const parsed = parseInt(String(rawAge ?? '').replace(/\D/g, '') || '-1', 10);
     return isNaN(parsed) ? -1 : parsed;
+  };
+
+  const isNonaktifCitizen = (u: any): boolean => {
+    if (!u) return false;
+    if (u.isApproved === false || u.isApproved === 0 || String(u.isApproved).toLowerCase() === 'false') {
+      return true;
+    }
+    const s = String(u.status || '').toLowerCase().trim();
+    if (s === 'tidak_aktif' || s === 'nonaktif' || s === 'tidak aktif' || s.includes('tidak_aktif') || s.includes('nonaktif')) {
+      return true;
+    }
+    return false;
   };
 
   let balitaCount = 0;
@@ -4955,6 +4967,16 @@ export async function getDashboardDataForRt(rawRtId?: string) {
   let docUploaded = 0;
   residentUsers.forEach((u: any) => {
     totalWarga += (u.members?.length || 0);
+    const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
+    const hasKtp = Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '');
+    if (hasKk || hasKtp) {
+      docUploaded++;
+    }
+  });
+
+  // Demografi Usia Warga HANYA menghitung warga dengan status AKTIF (status nonaktif jangan dimasukkan)
+  const activeResidentUsers = residentUsers.filter((u: any) => !isNonaktifCitizen(u));
+  activeResidentUsers.forEach((u: any) => {
     categorizeAge(resolvePersonAge(u.umur, u.tglLahir));
     countGender(u.jenisKelamin);
 
@@ -4963,11 +4985,6 @@ export async function getDashboardDataForRt(rawRtId?: string) {
         categorizeAge(resolvePersonAge(m.age, m.tglLahir));
         countGender(m.jenisKelamin);
       });
-    }
-    const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
-    const hasKtp = Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '');
-    if (hasKk || hasKtp) {
-      docUploaded++;
     }
   });
   const docNotUploaded = Math.max(0, jumlahKK - docUploaded);

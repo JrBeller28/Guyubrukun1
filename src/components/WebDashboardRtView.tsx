@@ -79,8 +79,20 @@ export const WebDashboardRtView = ({
       else lansia++;
     };
 
+    const isNonaktifCitizen = (u: any): boolean => {
+      if (!u) return false;
+      if (u.isApproved === false || u.isApproved === 0 || String(u.isApproved).toLowerCase() === 'false') {
+        return true;
+      }
+      const s = String(u.status || '').toLowerCase().trim();
+      if (s === 'tidak_aktif' || s === 'nonaktif' || s === 'tidak aktif' || s.includes('tidak_aktif') || s.includes('nonaktif')) {
+        return true;
+      }
+      return false;
+    };
+
     users
-      .filter(u => u.role !== 'developer')
+      .filter(u => u.role !== 'developer' && !isNonaktifCitizen(u))
       .forEach(u => {
         addAge(resolveAge(u.umur, u.tglLahir));
         if (Array.isArray(u.members)) {

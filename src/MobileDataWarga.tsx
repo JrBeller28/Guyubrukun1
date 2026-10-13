@@ -1079,6 +1079,20 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
             String(w?.username || '').toLowerCase() === String(currentUser.username).toLowerCase()))
     );
 
+  const isWargaNonaktif = (w: any): boolean => {
+    if (!w) return false;
+    // Status nonaktif / belum disetujui (isApproved === false)
+    if (w.isApproved === false || w.isApproved === 0 || String(w.isApproved).toLowerCase() === 'false') {
+      return true;
+    }
+    // Status string mengandung tidak_aktif / nonaktif
+    const st = String(w.status || '').toLowerCase().trim();
+    if (st === 'tidak_aktif' || st === 'nonaktif' || st === 'tidak aktif' || st.includes('tidak_aktif') || st.includes('nonaktif')) {
+      return true;
+    }
+    return false;
+  };
+
   const allPersonsList = useMemo(() => {
     const rawSource =
       allWargaKkData.length > 0
@@ -1086,8 +1100,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
         : allWargaFullData.length > 0
         ? allWargaFullData
         : wargaData;
-    // Demografi Usia Warga menampilkan seluruh warga RT (untuk Ketua RT, Bendahara, Pengurus, Sekretaris, dan Warga)
-    const sourceList = rawSource.filter(w => w.role !== 'developer');
+    // Demografi Usia Warga: status nonaktif jangan dimasukkan ke hitungan
+    const sourceList = rawSource.filter(w => w.role !== 'developer' && !isWargaNonaktif(w));
     const persons: Array<{
       id: string;
       wargaId: string;
@@ -2412,11 +2426,16 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
               <div className="bg-white border border-slate-200/80 rounded-3xl p-4 sm:p-5 shadow-xs mb-6">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider block">
-                  Demografi Usia Warga (Semua Warga)
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider block">
+                    Demografi Usia Warga (Semua Warga)
+                  </span>
+                  <span className="text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+                    Warga Aktif
+                  </span>
+                </div>
                 <span className="text-[11px] text-slate-500 font-medium">
-                  Distribusi usia seluruh warga RT ({allPersonsList.length} jiwa terdata)
+                  Distribusi usia seluruh warga aktif RT ({allPersonsList.length} jiwa terdata • Status nonaktif tidak dimasukkan)
                 </span>
               </div>
               <span className="text-[10px] font-extrabold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-full">
