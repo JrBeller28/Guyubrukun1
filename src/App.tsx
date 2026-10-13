@@ -2532,6 +2532,7 @@ const MobileDemographicsWidget = ({
   const [jumlahKK, setJumlahKK] = useState<number>(cached?.jumlahKK || 0);
   const [kkTetap, setKkTetap] = useState<number>(cached?.kkTetap || 0);
   const [kkKontrak, setKkKontrak] = useState<number>(cached?.kkKontrak || 0);
+  const [jumlahWarga, setJumlahWarga] = useState<number>(cached?.jumlahWarga || 0);
   const [loading, setLoading] = useState(!cached);
 
   const loadDemographics = async () => {
@@ -2544,11 +2545,13 @@ const MobileDemographicsWidget = ({
         setJumlahKK(json.metrics.jumlahKK || 0);
         setKkTetap(json.metrics.kkTetap || 0);
         setKkKontrak(json.metrics.kkKontrak || 0);
+        setJumlahWarga(json.metrics.jumlahWarga || demo.totalWithAge || 0);
         cachedDemoMap[activeRt] = {
           groups: demo.groups,
           jumlahKK: json.metrics.jumlahKK || 0,
           kkTetap: json.metrics.kkTetap || 0,
-          kkKontrak: json.metrics.kkKontrak || 0
+          kkKontrak: json.metrics.kkKontrak || 0,
+          jumlahWarga: json.metrics.jumlahWarga || demo.totalWithAge || 0
         };
         setLoading(false);
         return;
@@ -2573,7 +2576,9 @@ const MobileDemographicsWidget = ({
         const users = (wJson.users || []).filter((u: any) => u.role !== 'developer' && !isNonaktifCitizen(u));
         let fallTetap = 0;
         let fallKontrak = 0;
+        let totalWargaCount = users.length;
         users.forEach((u: any) => {
+          totalWargaCount += (u.members?.length || 0);
           const s = String(u.status || '').toLowerCase().trim();
           if (s.includes('kontrak') || s.includes('sementara') || s.includes('sewa')) {
             fallKontrak++;
@@ -2627,7 +2632,8 @@ const MobileDemographicsWidget = ({
         setJumlahKK(users.length);
         setKkTetap(fallTetap);
         setKkKontrak(fallKontrak);
-        cachedDemoMap[activeRt] = { groups: nextGroups, jumlahKK: users.length, kkTetap: fallTetap, kkKontrak: fallKontrak };
+        setJumlahWarga(totalWargaCount);
+        cachedDemoMap[activeRt] = { groups: nextGroups, jumlahKK: users.length, kkTetap: fallTetap, kkKontrak: fallKontrak, jumlahWarga: totalWargaCount };
       }
     } catch (e) {
       console.error('Gagal memuat demografi usia warga:', e);
@@ -2644,13 +2650,60 @@ const MobileDemographicsWidget = ({
   }, [activeRt, user?.id]);
 
   const totalPersons = groups.reduce((acc, g) => acc + (Number(g.count) || 0), 0);
+  const displayJumlahWarga = jumlahWarga > 0 ? jumlahWarga : totalPersons;
   const isAdminRole = ['admin', 'developer', 'bendahara', 'sekretaris', 'pengurus'].includes(
     user?.role || 'admin'
   );
   const rtLabel = ((user?.rtId || localStorage.getItem('selected_rt') || 'rt01').replace('rt', '')).padStart(2, '0');
 
   return (
-    <section className="px-5 mb-6">
+    <section className="px-5 mb-6 space-y-3">
+      {/* Quick Summary Metric Cards Above Demographics */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* Jumlah KK Card */}
+        <div 
+          onClick={() => onActionClick('Data Warga')}
+          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
+        >
+          <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 group-hover:bg-teal-100 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide truncate">Jumlah KK</p>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-lg font-black text-slate-900 tabular-nums">{jumlahKK}</span>
+              <span className="text-[10px] font-medium text-slate-500">KK</span>
+            </div>
+            {(kkTetap > 0 || kkKontrak > 0) && (
+              <div className="flex items-center gap-1 mt-1 text-[9px] font-semibold">
+                <span className="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 truncate">{kkTetap} Tetap</span>
+                <span className="text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-100 truncate">{kkKontrak} Kontrak</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Jumlah Warga Card */}
+        <div 
+          onClick={() => onActionClick('Data Warga')}
+          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
+        >
+          <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0 group-hover:bg-cyan-100 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide truncate">Jumlah Warga</p>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="text-lg font-black text-slate-900 tabular-nums">{displayJumlahWarga}</span>
+              <span className="text-[10px] font-medium text-slate-500">Jiwa</span>
+            </div>
+            <p className="text-[9px] font-semibold text-cyan-700 bg-cyan-50 px-1 py-0.2 rounded border border-cyan-100 mt-1 inline-block">
+              Terverifikasi Aktif
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3.5">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -2662,22 +2715,11 @@ const MobileDemographicsWidget = ({
                 {isAdminRole ? `Pengurus RT ${rtLabel}` : `Statistik RT ${rtLabel}`}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <p className="text-[11px] text-slate-500">
-                Total {totalPersons} jiwa dari {jumlahKK} KK
-              </p>
-              {(kkTetap > 0 || kkKontrak > 0) && (
-                <div className="flex items-center gap-1 text-[10px] font-semibold">
-                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-100">
-                    {kkTetap} Tetap
-                  </span>
-                  <span className="text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-100">
-                    {kkKontrak} Kontrak
-                  </span>
-                </div>
-              )}
-            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Total {totalPersons} jiwa dari {jumlahKK} KK terdaftar
+            </p>
           </div>
+
 
           <button
             type="button"
