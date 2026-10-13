@@ -11,6 +11,8 @@ export interface DemographicGroup {
 
 export interface DashboardMetrics {
   jumlahKK: number;
+  kkTetap?: number;
+  kkKontrak?: number;
   jumlahWarga: number;
   docUploaded: number;
   docNotUploaded: number;
@@ -53,6 +55,8 @@ export interface DashboardContextValue {
 
 const defaultMetrics: DashboardMetrics = {
   jumlahKK: 0,
+  kkTetap: 0,
+  kkKontrak: 0,
   jumlahWarga: 0,
   docUploaded: 0,
   docNotUploaded: 0,

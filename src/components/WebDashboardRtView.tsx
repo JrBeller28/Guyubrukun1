@@ -271,6 +271,14 @@ export const WebDashboardRtView = ({
             <h2 className="text-2xl font-extrabold text-gray-900">
               {metrics.jumlahKK} <span className="text-xs text-gray-500 font-medium font-sans">Keluarga</span>
             </h2>
+            <div className="flex items-center gap-1.5 pt-1 text-[11px] font-medium text-gray-500">
+              <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold">
+                {metrics.kkTetap ?? 0} Tetap
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 font-semibold">
+                {metrics.kkKontrak ?? 0} Kontrak
+              </span>
+            </div>
           </div>
         </div>
 

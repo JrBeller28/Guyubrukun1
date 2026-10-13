@@ -71,6 +71,8 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
 
   const [rtData, setRtData] = useState<{
     jumlahKK: number;
+    kkTetap?: number;
+    kkKontrak?: number;
     jumlahWarga: number;
     saldoKas: number;
     lakiLaki: number;
@@ -79,8 +81,10 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
     pengurusList: { id: string; nama: string; role: string; jabatan: string; alamat: string; noHp: string; photo?: string }[];
     acaraList?: any[];
   }>({
-    jumlahKK: 62,
-    jumlahWarga: 157,
+    jumlahKK: 55,
+    kkTetap: 46,
+    kkKontrak: 9,
+    jumlahWarga: 174,
     saldoKas: 13111500,
     lakiLaki: 82,
     perempuan: 75,
@@ -146,6 +150,8 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
         ];
         setRtData(prev => ({
           jumlahKK: m.jumlahKK ?? prev.jumlahKK,
+          kkTetap: m.kkTetap !== undefined ? m.kkTetap : prev.kkTetap,
+          kkKontrak: m.kkKontrak !== undefined ? m.kkKontrak : prev.kkKontrak,
           jumlahWarga: m.jumlahWarga ?? prev.jumlahWarga,
           saldoKas: m.saldoKas ?? prev.saldoKas,
           lakiLaki: d.lakiLaki ?? prev.lakiLaki,
@@ -163,7 +169,15 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
 
   const stats = [
     { label: `Total Warga ${rtLabel}`, value: `${rtData.jumlahWarga} Jiwa`, sub: `${rtData.jumlahKK} Kepala Keluarga (KK)`, icon: Users, color: 'text-teal-600 bg-teal-50' },
-    { label: `Kepala Keluarga ${rtLabel}`, value: `${rtData.jumlahKK} KK`, sub: 'Warga Terverifikasi Aktif', icon: UserCheck, color: 'text-indigo-600 bg-indigo-50' },
+    { 
+      label: `Kepala Keluarga ${rtLabel}`, 
+      value: `${rtData.jumlahKK} KK`, 
+      sub: rtData.kkTetap !== undefined && rtData.kkKontrak !== undefined
+        ? `${rtData.kkTetap} Tetap · ${rtData.kkKontrak} Kontrak`
+        : 'Warga Terverifikasi Aktif', 
+      icon: UserCheck, 
+      color: 'text-indigo-600 bg-indigo-50' 
+    },
     { label: `Transparansi Kas ${rtLabel}`, value: rtData.saldoKas > 0 ? `Rp ${(rtData.saldoKas / 1000000).toFixed(1).replace('.', ',')} Jt` : 'Rp 0', sub: 'Saldo Kas Tercatat Real-time', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50' },
     { label: `Pengurus & Koordinator`, value: `${rtData.pengurusList?.length || (selectedRt === 'rt01' ? 7 : 0)} Orang`, sub: `Pengurus Inti & Seksi ${rtLabel}`, icon: ShieldCheck, color: 'text-amber-600 bg-amber-50' },
   ];
@@ -925,7 +939,7 @@ export function LandingPage({ onEnterPortal }: LandingPageProps) {
                   Grafik & Komposisi Demografi Warga {rtLabel} ({rtData.jumlahWarga} Jiwa · {rtData.jumlahKK} KK)
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Laki-laki: <strong className="text-slate-800 tabular-nums">{rtData.lakiLaki} Jiwa</strong> · Perempuan: <strong className="text-slate-800 tabular-nums">{rtData.perempuan} Jiwa</strong>
+                  Kepala Keluarga: <strong className="text-slate-800 tabular-nums">{rtData.jumlahKK} KK</strong>{rtData.kkTetap !== undefined && rtData.kkKontrak !== undefined ? ` (${rtData.kkTetap} Tetap · ${rtData.kkKontrak} Kontrak)` : ''} · Laki-laki: <strong className="text-slate-800 tabular-nums">{rtData.lakiLaki} Jiwa</strong> · Perempuan: <strong className="text-slate-800 tabular-nums">{rtData.perempuan} Jiwa</strong>
                 </p>
               </div>
               <span className="text-xs font-semibold text-teal-700">

@@ -594,7 +594,21 @@ const WebHeader = ({
 };
 
 const WebStatsCards = () => {
-  const [stats, setStats] = useState({ warga: 0, totalWarga: 0, laporan: 0, saldo: 0, iuranRef: 0, iuranTotal: 0, kasRT: 0, danaKematian: 0, danaSosial: 0, docUploaded: 0, docNotUploaded: 0 });
+  const [stats, setStats] = useState({ 
+    warga: 0, 
+    kkTetap: 0, 
+    kkKontrak: 0, 
+    totalWarga: 0, 
+    laporan: 0, 
+    saldo: 0, 
+    iuranRef: 0, 
+    iuranTotal: 0, 
+    kasRT: 0, 
+    danaKematian: 0, 
+    danaSosial: 0, 
+    docUploaded: 0, 
+    docNotUploaded: 0 
+  });
   const [showKasDetail, setShowKasDetail] = useState(false);
   
   // Tambahkan state ini untuk kontrol menyembunyikan saldo di Web
@@ -612,6 +626,8 @@ const WebStatsCards = () => {
 
         setStats({
           warga: metrics.jumlahKK || 0,
+          kkTetap: metrics.kkTetap || 0,
+          kkKontrak: metrics.kkKontrak || 0,
           totalWarga: metrics.jumlahWarga || 0,
           laporan: (metrics.pengaduanAktif || []).length,
           saldo: metrics.saldoKas || 0,
@@ -682,9 +698,15 @@ const WebStatsCards = () => {
             </div>
           </div>
           {card.isWarga && (
-              <div className="w-full flex gap-2 mt-2 text-[10px] font-medium border-t pt-2">
-                <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-100">{stats.docUploaded} Upload Dokumen</span>
-                <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">{stats.docNotUploaded} Belum</span>
+              <div className="w-full space-y-1.5 mt-2 border-t pt-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold">
+                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{stats.kkTetap} Tetap</span>
+                  <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">{stats.kkKontrak} Kontrak</span>
+                </div>
+                <div className="flex gap-2 text-[10px] font-medium text-gray-400">
+                  <span className="text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-100">{stats.docUploaded} Upload Dokumen</span>
+                  <span className="text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">{stats.docNotUploaded} Belum</span>
+                </div>
               </div>
           )}
           
@@ -2508,6 +2530,8 @@ const MobileDemographicsWidget = ({
     ]
   );
   const [jumlahKK, setJumlahKK] = useState<number>(cached?.jumlahKK || 0);
+  const [kkTetap, setKkTetap] = useState<number>(cached?.kkTetap || 0);
+  const [kkKontrak, setKkKontrak] = useState<number>(cached?.kkKontrak || 0);
   const [loading, setLoading] = useState(!cached);
 
   const loadDemographics = async () => {
@@ -2518,9 +2542,13 @@ const MobileDemographicsWidget = ({
       if (demo && Array.isArray(demo.groups) && demo.totalWithAge > 0) {
         setGroups(demo.groups);
         setJumlahKK(json.metrics.jumlahKK || 0);
+        setKkTetap(json.metrics.kkTetap || 0);
+        setKkKontrak(json.metrics.kkKontrak || 0);
         cachedDemoMap[activeRt] = {
           groups: demo.groups,
-          jumlahKK: json.metrics.jumlahKK || 0
+          jumlahKK: json.metrics.jumlahKK || 0,
+          kkTetap: json.metrics.kkTetap || 0,
+          kkKontrak: json.metrics.kkKontrak || 0
         };
         setLoading(false);
         return;
@@ -2543,6 +2571,16 @@ const MobileDemographicsWidget = ({
         };
 
         const users = (wJson.users || []).filter((u: any) => u.role !== 'developer' && !isNonaktifCitizen(u));
+        let fallTetap = 0;
+        let fallKontrak = 0;
+        users.forEach((u: any) => {
+          const s = String(u.status || '').toLowerCase().trim();
+          if (s.includes('kontrak') || s.includes('sementara') || s.includes('sewa')) {
+            fallKontrak++;
+          } else {
+            fallTetap++;
+          }
+        });
         const resolveAge = (rawAge: any, rawDob?: string): number => {
           if (rawDob && /^\d{4}-\d{2}-\d{2}$/.test(String(rawDob).trim())) {
             const diff = Date.now() - new Date(String(rawDob).trim()).getTime();
@@ -2587,7 +2625,9 @@ const MobileDemographicsWidget = ({
         ];
         setGroups(nextGroups);
         setJumlahKK(users.length);
-        cachedDemoMap[activeRt] = { groups: nextGroups, jumlahKK: users.length };
+        setKkTetap(fallTetap);
+        setKkKontrak(fallKontrak);
+        cachedDemoMap[activeRt] = { groups: nextGroups, jumlahKK: users.length, kkTetap: fallTetap, kkKontrak: fallKontrak };
       }
     } catch (e) {
       console.error('Gagal memuat demografi usia warga:', e);
@@ -2622,9 +2662,21 @@ const MobileDemographicsWidget = ({
                 {isAdminRole ? `Pengurus RT ${rtLabel}` : `Statistik RT ${rtLabel}`}
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Total {totalPersons} jiwa dari {jumlahKK} KK terdaftar
-            </p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+              <p className="text-[11px] text-slate-500">
+                Total {totalPersons} jiwa dari {jumlahKK} KK
+              </p>
+              {(kkTetap > 0 || kkKontrak > 0) && (
+                <div className="flex items-center gap-1 text-[10px] font-semibold">
+                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-100">
+                    {kkTetap} Tetap
+                  </span>
+                  <span className="text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-100">
+                    {kkKontrak} Kontrak
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
           <button

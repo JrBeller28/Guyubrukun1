@@ -4994,11 +4994,22 @@ export async function getDashboardDataForRt(rawRtId?: string) {
 
   // Exclude standalone system administrative accounts from citizen counts if RT has no registered citizens
   const residentUsers = users.filter((u: any) => u.role !== 'admin' || (u.alamat && !u.alamat.includes('Kompleks') && u.alamat.toLowerCase().includes('blok')));
-  const jumlahKK = residentUsers.length;
+  
+  // Dashboard / Beranda HANYA menghitung Kepala Keluarga (KK) dan Warga yang berstatus AKTIF (terverifikasi & bukan nonaktif)
+  const activeResidentUsers = residentUsers.filter((u: any) => !isNonaktifCitizen(u));
+  const jumlahKK = activeResidentUsers.length;
+  let kkTetap = 0;
+  let kkKontrak = 0;
   let totalWarga = jumlahKK;
   let docUploaded = 0;
-  residentUsers.forEach((u: any) => {
+  activeResidentUsers.forEach((u: any) => {
     totalWarga += (u.members?.length || 0);
+    const s = String(u.status || '').toLowerCase().trim();
+    if (s.includes('kontrak') || s.includes('sementara') || s.includes('sewa')) {
+      kkKontrak++;
+    } else {
+      kkTetap++;
+    }
     const hasKk = Boolean(u.hasKk || (u.dokumenKk && String(u.dokumenKk).trim() !== ''));
     const hasKtp = Boolean(u.hasKtp || (Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '')));
     if (hasKk || hasKtp) {
@@ -5006,8 +5017,7 @@ export async function getDashboardDataForRt(rawRtId?: string) {
     }
   });
 
-  // Demografi Usia Warga HANYA menghitung warga dengan status AKTIF (status nonaktif jangan dimasukkan)
-  const activeResidentUsers = residentUsers.filter((u: any) => !isNonaktifCitizen(u));
+  // Demografi Usia Warga HANYA menghitung warga dengan status AKTIF
   activeResidentUsers.forEach((u: any) => {
     categorizeAge(resolvePersonAge(u.umur, u.tglLahir));
     countGender(u.jenisKelamin);
@@ -5116,6 +5126,8 @@ export async function getDashboardDataForRt(rawRtId?: string) {
     rtLabel,
     metrics: {
       jumlahKK,
+      kkTetap,
+      kkKontrak,
       jumlahWarga: totalWarga,
       docUploaded,
       docNotUploaded,
