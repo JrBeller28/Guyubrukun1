@@ -2675,9 +2675,9 @@ const MobileDemographicsWidget = ({
               <span className="text-[10px] font-medium text-slate-500">KK</span>
             </div>
             {(kkTetap > 0 || kkKontrak > 0) && (
-              <div className="flex items-center gap-1 mt-1 text-[9px] font-semibold">
-                <span className="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-100 truncate">{kkTetap} Tetap</span>
-                <span className="text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-100 truncate">{kkKontrak} Kontrak</span>
+              <div className="grid grid-cols-2 gap-1 mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-bold">
+                <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-center border border-emerald-200">{kkTetap} Tetap</span>
+                <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded text-center border border-amber-200">{kkKontrak} Kontrak</span>
               </div>
             )}
           </div>
