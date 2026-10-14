@@ -1854,11 +1854,6 @@ const MobileQuickActions = ({ onActionClick, visibleMenus = [] }: { onActionClic
         if (idxB !== -1) return 1;
         return 0;
       });
-      const votingIndex = actions.findIndex(a => a.name === 'Voting');
-      if (votingIndex >= 8) {
-        const [votingItem] = actions.splice(votingIndex, 1);
-        actions.splice(2, 0, votingItem);
-      }
     }
     return actions;
   }, [visibleMenus, savedOrder]);
