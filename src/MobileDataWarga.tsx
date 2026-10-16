@@ -1599,11 +1599,12 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
     const info = parseHouseInfo(warga);
     return (
       <span
-        className={`inline-flex items-center gap-1 bg-teal-50 text-teal-800 border border-teal-200 rounded-lg font-extrabold shrink-0 ${
-          size === 'sm' ? 'px-2 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs'
+        className={`inline-flex items-center gap-1.5 bg-teal-50 text-teal-800 border border-teal-200 rounded-lg font-extrabold shrink-0 whitespace-nowrap ${
+          size === 'sm' ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
         }`}
       >
-        🏠 {info.fullFormatted}
+        <span className="text-xs">🏠</span>
+        <span>{info.fullFormatted}</span>
       </span>
     );
   };
@@ -2775,12 +2776,12 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="border-b-2 border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider bg-slate-50/80">
-                              <th className="py-3 px-3 rounded-tl-xl">No</th>
-                              <th className="py-3 px-3">Nama Lengkap</th>
-                              <th className="py-3 px-3">Blok / Rumah</th>
-                              <th className="py-3 px-3">Jenis Kelamin</th>
-                              <th className="py-3 px-3">Tanggal Lahir</th>
-                              <th className="py-3 px-3 rounded-tr-xl text-right">Umur</th>
+                              <th className="py-3 px-3 rounded-tl-xl whitespace-nowrap">No</th>
+                              <th className="py-3 px-3 min-w-[150px]">Nama Lengkap</th>
+                              <th className="py-3 px-3 whitespace-nowrap min-w-[140px]">Blok / Rumah</th>
+                              <th className="py-3 px-3 whitespace-nowrap">Jenis Kelamin</th>
+                              <th className="py-3 px-3 whitespace-nowrap">Tanggal Lahir</th>
+                              <th className="py-3 px-3 rounded-tr-xl text-right whitespace-nowrap">Umur</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 text-xs">
@@ -2793,31 +2794,31 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                   if (targetW) setPreviewPhotoWarga(targetW);
                                 }}
                               >
-                                <td className="py-3 px-3 font-bold text-slate-400">
+                                <td className="py-3 px-3 font-bold text-slate-400 whitespace-nowrap">
                                   {idx + 1}
                                 </td>
                                 <td className="py-3 px-3">
                                   <div className="font-extrabold text-slate-900 text-sm flex items-center gap-1.5 hover:text-teal-700">
                                     <span>{person.nama}</span>
-                                    <span className="text-[10px] text-teal-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">👁️ Foto</span>
+                                    <span className="text-[10px] text-teal-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">👁️ Foto</span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 whitespace-nowrap">
                                       {person.hubungan}
                                     </span>
                                     {!person.isHead && (
-                                      <span className="text-[10px] text-slate-400 font-medium">
+                                      <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
                                         (KK: {person.kepalaKeluarga})
                                       </span>
                                     )}
                                   </div>
                                 </td>
-                                <td className="py-3 px-3">
+                                <td className="py-3 px-3 whitespace-nowrap">
                                   <HouseBadge warga={person.wargaObj} size="sm" />
                                 </td>
-                                <td className="py-3 px-3">
+                                <td className="py-3 px-3 whitespace-nowrap">
                                   <span
-                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold border ${
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold border whitespace-nowrap ${
                                       person.jenisKelamin === 'Perempuan'
                                         ? 'bg-pink-50 text-pink-700 border-pink-200'
                                         : 'bg-sky-50 text-sky-700 border-sky-200'
