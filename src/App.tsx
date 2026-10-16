@@ -75,6 +75,7 @@ const WebInventarisPage = React.lazy(() => import('./components/WebInventarisPag
 const WebNotulenPage = React.lazy(() => import('./components/WebNotulenPage').then(m => ({ default: m.WebNotulenPage })));
 const WebMenuAccessPage = React.lazy(() => import('./components/WebMenuAccessPage').then(m => ({ default: m.WebMenuAccessPage })));
 const LandingPage = React.lazy(() => import('./components/LandingPage').then(m => ({ default: m.LandingPage })));
+const MobileMedia = React.lazy(() => import('./MobileMedia').then(m => ({ default: m.MobileMedia || m.default })));
 
 // --- Modern Icons Set ---
 export const icons = {
@@ -2349,8 +2350,6 @@ const MobileBottomNav = ({ activeTab, onTabChange, user }: { activeTab: string, 
   );
 };
 
-const MobileMedia = React.lazy(() => import('./MobileMedia').then(m => ({ default: m.MobileMedia })));
-
 // --- Simplified Inline Illustrations (as functional components) ---
 
 const IllustrationFamilyGroup = () => (
@@ -2654,25 +2653,48 @@ const MobileDemographicsWidget = ({
   return (
     <section className="px-5 mb-6 space-y-3">
       {/* Quick Summary Metric Cards Above Demographics */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         {/* Jumlah KK Card */}
         <div 
           onClick={() => onActionClick('Data Warga')}
-          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
+          className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group active:scale-[0.98] min-h-[128px]"
         >
-          <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 group-hover:bg-teal-100 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide truncate">Jumlah KK</p>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-black text-slate-900 tabular-nums">{jumlahKK}</span>
-              <span className="text-[10px] font-medium text-slate-500">KK</span>
+          <div>
+            {/* Header: Non-truncating, flexible multi-line support */}
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 group-hover:bg-teal-100 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+              </div>
+              <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight break-words">
+                Jumlah KK
+              </span>
             </div>
-            {(kkTetap > 0 || kkKontrak > 0) && (
-              <div className="grid grid-cols-2 gap-1 mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] font-bold">
-                <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-center border border-emerald-200">{kkTetap} Tetap</span>
-                <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded text-center border border-amber-200">{kkKontrak} Kontrak</span>
+            
+            {/* Main Value with breathing room */}
+            <div className="flex items-baseline gap-1.5 py-0.5">
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 tabular-nums leading-none tracking-tight">
+                {jumlahKK}
+              </span>
+              <span className="text-xs font-semibold text-slate-400">KK</span>
+            </div>
+          </div>
+
+          {/* Tetap / Kontrak Status Tags: side-by-side flex wrap with clear number association */}
+          <div className="mt-3 pt-2.5 border-t border-slate-100">
+            {(kkTetap > 0 || kkKontrak > 0) ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex-1 min-w-[54px] flex items-center justify-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200/90 px-1.5 py-1 rounded-lg text-[10px] font-bold shadow-2xs">
+                  <span className="text-emerald-950 font-black tabular-nums">{kkTetap}</span>
+                  <span className="text-emerald-700 font-medium">Tetap</span>
+                </div>
+                <div className="flex-1 min-w-[54px] flex items-center justify-center gap-1 bg-amber-50 text-amber-800 border border-amber-200/90 px-1.5 py-1 rounded-lg text-[10px] font-bold shadow-2xs">
+                  <span className="text-amber-950 font-black tabular-nums">{kkKontrak}</span>
+                  <span className="text-amber-700 font-medium">Kontrak</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-[10px] font-semibold text-slate-400 py-1">
+                Keluarga Terdaftar
               </div>
             )}
           </div>
@@ -2681,20 +2703,34 @@ const MobileDemographicsWidget = ({
         {/* Jumlah Warga Card */}
         <div 
           onClick={() => onActionClick('Data Warga')}
-          className="bg-white rounded-2xl p-3.5 border border-slate-200/80 shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3 group"
+          className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group active:scale-[0.98] min-h-[128px]"
         >
-          <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0 group-hover:bg-cyan-100 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide truncate">Jumlah Warga</p>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-black text-slate-900 tabular-nums">{displayJumlahWarga}</span>
-              <span className="text-[10px] font-medium text-slate-500">Jiwa</span>
+          <div>
+            {/* Header: Non-truncating, flexible multi-line support */}
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0 group-hover:bg-cyan-100 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+              </div>
+              <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight break-words">
+                Jumlah Warga
+              </span>
             </div>
-            <p className="text-[9px] font-semibold text-cyan-700 bg-cyan-50 px-1 py-0.2 rounded border border-cyan-100 mt-1 inline-block">
-              Terverifikasi Aktif
-            </p>
+            
+            {/* Main Value with breathing room */}
+            <div className="flex items-baseline gap-1.5 py-0.5">
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 tabular-nums leading-none tracking-tight">
+                {displayJumlahWarga}
+              </span>
+              <span className="text-xs font-semibold text-slate-400">Jiwa</span>
+            </div>
+          </div>
+
+          {/* Status Tag aligned with the left card */}
+          <div className="mt-3 pt-2.5 border-t border-slate-100">
+            <div className="flex items-center justify-center gap-1 bg-cyan-50 text-cyan-800 border border-cyan-200/90 px-2 py-1 rounded-lg text-[10px] font-bold shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+              <span className="text-cyan-900 font-bold">Warga Aktif</span>
+            </div>
           </div>
         </div>
       </div>
