@@ -22,31 +22,11 @@ function isValidGeminiApiKey(key?: string): boolean {
   return k.length >= 20 && !k.startsWith('MY_') && !k.startsWith('YOUR_') && !k.includes('placeholder');
 }
 
+import { connectDB as connectCachedDB } from "./src/db/db.js";
+
 async function connectDB() {
-  if (mongoose.connection && mongoose.connection.readyState === 1) {
-    isDbConnected = true;
-    return;
-  }
-  if (mongoose.connection && mongoose.connection.readyState === 2) {
-    return;
-  }
-  try {
-    await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-      maxPoolSize: 20,
-      minPoolSize: 2,
-      retryWrites: true,
-      retryReads: true,
-      readPreference: 'secondaryPreferred',
-    });
-    isDbConnected = true;
-    console.log("Connected securely to MongoDB database system.");
-  } catch (err) {
-    console.error("MongoDB connection exception:", err);
-    throw err;
-  }
+  await connectCachedDB();
+  isDbConnected = true;
 }
 
 // Secure Authentication Helpers
@@ -193,11 +173,74 @@ export function requireRtScope(req: express.Request, res: express.Response, next
   next();
 }
 
+/**
+ * Middleware: Isolasi Data Multi-Tenant (Tenant Data Isolation)
+ * Memastikan rtId dari JWT cocok dengan parameter/query data yang diminta
+ */
+export function checkTenantIsolation(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = getAuthUser(req);
+  if (!user) {
+    return res.status(401).json({ error: "Unauthorized: Token dibutuhkan" });
+  }
+
+  // Developer role dapat mengelola lintas RT untuk kebutuhan administrasi platform SaaS
+  if (user.role === 'developer') {
+    return next();
+  }
+
+  const requestedRt = (req.params.rtId || req.query.rtId || req.body?.rtId || req.headers['x-rt-id']) as string | undefined;
+  if (requestedRt && requestedRt.toLowerCase() !== String(user.rtId || '').toLowerCase()) {
+    return res.status(403).json({
+      error: `Akses ditolak: Data RT '${requestedRt}' tidak diizinkan untuk akun Anda (${user.rtId}).`
+    });
+  }
+
+  next();
+}
+
+/**
+ * Middleware: Validasi Masa Aktif Layanan SaaS (Tenant Subscription Guard)
+ * Mengecek apakah statusLangganan aktif dan expiredAt belum kedaluwarsa
+ */
+export async function checkTenantSubscription(req: express.Request, res: express.Response, next: express.NextFunction) {
+  try {
+    const user = getAuthUser(req);
+    const rtId = (user?.rtId || req.headers['x-rt-id'] || req.query.rtId || 'rt01') as string;
+
+    // Developer selalu diizinkan mengakses
+    if (user?.role === 'developer') {
+      return next();
+    }
+
+    await connectDB();
+    const tenant = await TenantModel.findOne({ rtId: String(rtId).toLowerCase() });
+    if (tenant) {
+      if (tenant.statusLangganan === false) {
+        return res.status(402).json({
+          error: `Layanan SaaS untuk ${rtId.toUpperCase()} sedang dinonaktifkan. Hubungi admin Guyub Rukun.`
+        });
+      }
+      if (tenant.expiredAt && new Date(tenant.expiredAt).getTime() < Date.now()) {
+        return res.status(402).json({
+          error: `Masa aktif langganan SaaS ${rtId.toUpperCase()} telah berakhir pada ${new Date(tenant.expiredAt).toLocaleDateString('id-ID')}. Silakan perpanjang langganan.`
+        });
+      }
+    }
+
+    next();
+  } catch (err) {
+    console.error('[Tenant Subscription Check Error]', err);
+    next();
+  }
+}
+
 // Auth Verification Middleware - NO UNAUTHENTICATED FALLBACK TO ADMIN/RT01
 function authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const publicRoutes = [
     "/api/login",
     "/api/register",
+    "/api/auth/login",
+    "/api/auth/register",
     "/api/health",
     "/api/public/rt-list",
     "/api/public/beranda-summary",
@@ -254,15 +297,16 @@ const SystemDataModel: mongoose.Model<any> = mongoose.models.SystemData || mongo
 // POINT 3: DEDICATED GRANULAR COLLECTION SCHEMAS
 // ==========================================
 
-// 1. User Schema
+// 1. User Schema (Multi-Tenant with NIK & Role)
 const UserSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
+  nik: { type: String }, // NIK identitas kependudukan warga
   username: { type: String, required: true },
   nama: { type: String, required: true },
   password: { type: String, required: true },
   alamat: { type: String },
   noHp: { type: String },
-  status: { type: String },
+  status: { type: String, default: 'aktif' },
   role: { type: String, enum: ['admin', 'warga', 'bendahara', 'sekretaris', 'pengurus', 'developer'], default: 'warga' },
   isApproved: { type: Boolean, default: false },
   isVip: { type: Boolean, default: false },
@@ -290,12 +334,20 @@ if (mongoose.models.User) {
 }
 const UserModel: mongoose.Model<any> = mongoose.model("User", UserSchema);
 
-// RT Config / Subscription Schema
-const RtConfigSchema = new mongoose.Schema({
+// Tenant Schema (Multi-Tenant RT SaaS Configuration & Subscription)
+const TenantSchema = new mongoose.Schema({
   rtId: { type: String, required: true, unique: true },
+  namaRt: { type: String, default: 'Rukun Tetangga' },
+  alamat: { type: String, default: '' },
+  packageTier: { type: String, enum: ['Free', 'VIP'], default: 'Free' },
+  statusLangganan: { type: Boolean, default: true },
+  expiredAt: { type: Date, default: () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) }, // Default 1 tahun
   isVip: { type: Boolean, default: false }
 }, { timestamps: true });
-const RtConfigModel: mongoose.Model<any> = mongoose.models.RtConfig || mongoose.model("RtConfig", RtConfigSchema);
+
+const TenantModel: mongoose.Model<any> = mongoose.models.Tenant || mongoose.model("Tenant", TenantSchema);
+// Backward compatibility alias for RtConfigModel
+const RtConfigModel = TenantModel;
 
 // 2. Iuran Schema
 const IuranSchema = new mongoose.Schema({
@@ -562,8 +614,10 @@ const MenuAccessModel: mongoose.Model<any> = mongoose.models.MenuAccess || mongo
 
 
 // ==========================================
-// DATABASE INDEX OPTIMIZATION (HIGH PERFORMANCE)
+// DATABASE INDEX OPTIMIZATION (HIGH PERFORMANCE MULTI-TENANT)
 // ==========================================
+TenantSchema.index({ rtId: 1 }, { unique: true });
+UserSchema.index({ rtId: 1, nik: 1 }, { unique: true, sparse: true }); // Compound index NIK per-tenant
 UserSchema.index({ rtId: 1, username: 1 });
 UserSchema.index({ rtId: 1, createdAt: -1 });
 UserSchema.index({ rtId: 1, role: 1 });
@@ -1317,6 +1371,7 @@ export async function addNotification(rtId: string = '', title: string, message:
 // POINT 6: REQUESTS VALIDATION (ZOD SYSTEM)
 // ==========================================
 const RegisterValidator = z.object({
+  nik: z.string().optional(),
   username: z.string().min(3, "Username minimal 3 karakter"),
   nama: z.string().min(2, "Nama minimal 2 karakter"),
   password: z.string().min(5, "Password minimal 5 karakter"),
@@ -1330,12 +1385,16 @@ const RegisterValidator = z.object({
   isApproved: z.boolean().optional(),
   noKk: z.string().optional(),
   dokumenKk: z.any().optional(),
-  dokumenKtp: z.any().optional()
+  dokumenKtp: z.any().optional(),
+  rtId: z.string().optional()
 });
 
 const LoginValidator = z.object({
-  username: z.string(),
+  username: z.string().optional(),
+  nik: z.string().optional(),
   password: z.string()
+}).refine(data => Boolean(data.username || data.nik), {
+  message: "Username atau NIK wajib diisi"
 });
 
 const KasTransactionValidator = z.object({
@@ -1699,9 +1758,9 @@ app.get("/api/public/registered-houses", async (req, res) => {
   }
 });
 
-// --- AUTH & SIGNUP ---
-app.post("/api/register", validateRequest(RegisterValidator), async (req, res) => {
-  const { username, nama, password, alamat, noHp, status, umur, tglLahir, jenisKelamin, role, isApproved, noKk, dokumenKk, dokumenKtp } = req.body;
+// --- AUTH & SIGNUP (MULTI-TENANT REGISTER) ---
+async function handleRegister(req: express.Request, res: express.Response) {
+  const { nik, username, nama, password, alamat, noHp, status, umur, tglLahir, jenisKelamin, role, isApproved, noKk, dokumenKk, dokumenKtp } = req.body;
   const requestedRt = (req.headers['x-rt-id'] as string) || req.body.rtId || 'rt01';
 
   const blockAlamat = normalizeBlockFromAddress(alamat || '');
@@ -1718,7 +1777,17 @@ app.post("/api/register", validateRequest(RegisterValidator), async (req, res) =
   const rtId = resolvedRt || requestedRt;
 
   await connectDB();
-  const userExists = await UserModel.findOne({ rtId, username });
+
+  // Multi-Tenant Isolation Check: NIK unik di dalam RT terkait
+  if (nik && String(nik).trim()) {
+    const cleanNik = String(nik).trim();
+    const existingNik = await UserModel.findOne({ rtId, nik: cleanNik });
+    if (existingNik) {
+      return res.status(400).json({ error: `NIK ${cleanNik} sudah terdaftar di lingkungan RT ${rtId.toUpperCase()}` });
+    }
+  }
+
+  const userExists = await UserModel.findOne({ rtId, username: String(username).trim() });
   if (userExists) {
     return res.status(400).json({ error: "Username sudah terdaftar" });
   }
@@ -1752,12 +1821,13 @@ app.post("/api/register", validateRequest(RegisterValidator), async (req, res) =
 
   const newUser = await UserModel.create({
     id: Date.now().toString(),
-    username,
+    nik: nik ? String(nik).trim() : undefined,
+    username: String(username).trim(),
     nama,
     password: hashPassword(password),
     alamat,
     noHp,
-    status,
+    status: status || 'aktif',
     role: assignedRole,
     isApproved: typeof isApproved === 'boolean' ? isApproved : false,
     umur: Number(umur) || undefined,
@@ -1783,7 +1853,10 @@ app.post("/api/register", validateRequest(RegisterValidator), async (req, res) =
   });
 
   res.json({ message: "Registrasi sukses", user: newUser });
-});
+}
+
+app.post("/api/register", validateRequest(RegisterValidator), handleRegister);
+app.post("/api/auth/register", validateRequest(RegisterValidator), handleRegister);
 
 const activeSessions = new Map<string, number>();
 
@@ -1801,31 +1874,33 @@ setInterval(() => {
   }
 }, 15000);
 
-app.post("/api/login", validateRequest(LoginValidator), async (req, res, next) => {
+// --- AUTH LOGIN (MULTI-TENANT LOGIN) ---
+async function handleLogin(req: express.Request, res: express.Response, next: express.NextFunction) {
   try {
-    const { username, password } = req.body;
+    const { username, nik, password } = req.body;
     const requestedRt = (req.headers['x-rt-id'] as string) || req.body.rtId || 'rt01';
 
     await connectDB();
-    const cleanUsername = (username || '').trim();
-    const normalizedBlockUser = cleanUsername
+    const loginIdentifier = String(nik || username || '').trim();
+    const normalizedBlockUser = loginIdentifier
       .replace(/^blok\s*/i, '')
       .replace(/no\.?\s*/i, '')
       .replace(/[\s-]+/g, '');
 
-    // Search user across all RTs
-    const query: any = {
-      $or: [
-        { username: new RegExp(`^${cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-        ...(normalizedBlockUser
-          ? [{ username: new RegExp(`^${normalizedBlockUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }]
-          : [])
-      ]
-    };
-    const user = await UserModel.findOne(query);
+    // Search user by NIK or Username across RTs
+    const orConditions: any[] = [
+      { username: new RegExp(`^${loginIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      { nik: loginIdentifier }
+    ];
+
+    if (normalizedBlockUser) {
+      orConditions.push({ username: new RegExp(`^${normalizedBlockUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+    }
+
+    const user = await UserModel.findOne({ $or: orConditions });
 
     if (!user) {
-      return res.status(401).json({ error: "Username atau password salah" });
+      return res.status(401).json({ error: "Username/NIK atau password salah" });
     }
 
     const cleanPwd = (password || '').trim();
@@ -1851,7 +1926,7 @@ app.post("/api/login", validateRequest(LoginValidator), async (req, res, next) =
     );
 
     if (!matchPwd) {
-      return res.status(401).json({ error: "Username atau password salah" });
+      return res.status(401).json({ error: "Username/NIK atau password salah" });
     }
 
     // Password matches! Check RT context lock for non-developer roles
@@ -1873,24 +1948,43 @@ app.post("/api/login", validateRequest(LoginValidator), async (req, res, next) =
     }
     activeSessions.set(user.id, Date.now());
 
-    // JWT token payload strictly uses the user's actual rtId
+    // Check Tenant Subscription status
+    const tenant = await TenantModel.findOne({ rtId: user.rtId });
+
+    // JWT token payload strictly uses userId, rtId, and role
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, nama: user.nama, rtId: user.rtId },
+      { 
+        id: user.id, 
+        userId: user.id,
+        username: user.username, 
+        nik: user.nik,
+        role: user.role, 
+        nama: user.nama, 
+        rtId: user.rtId 
+      },
       JWT_SECRET,
       { expiresIn: "365d" }
     );
 
     const userJson = user.toObject();
     userJson.token = token;
-    
-    const rtConfig = await RtConfigModel.findOne({ rtId: user.rtId });
-    userJson.isVip = rtConfig?.isVip || false;
+    userJson.isVip = tenant?.isVip || tenant?.packageTier === 'VIP' || false;
+    userJson.tenant = {
+      rtId: user.rtId,
+      namaRt: tenant?.namaRt || `RT ${user.rtId.replace('rt', '').padStart(2, '0')}`,
+      packageTier: tenant?.packageTier || 'Free',
+      statusLangganan: tenant?.statusLangganan !== false,
+      expiredAt: tenant?.expiredAt
+    };
 
-    res.json({ message: "Login Berhasil", user: userJson });
+    res.json({ message: "Login Berhasil", token, user: userJson });
   } catch(error) {
     next(error);
   }
-});
+}
+
+app.post("/api/login", validateRequest(LoginValidator), handleLogin);
+app.post("/api/auth/login", validateRequest(LoginValidator), handleLogin);
 
 app.post("/api/ping", async (req, res) => {
   const { id } = req.body;
