@@ -543,23 +543,28 @@ export const MobileSuratPengantar = ({
 
     // 1. Verifikasi Batas Unduh (Reguler vs VIP)
     try {
-      const trackRes = await apiFetch(`/api/surat/${surat.id}/track-download`, {
+      const trackRes = await apiFetch(`/api/surat/${encodeURIComponent(surat.id)}/track-download`, {
         method: 'POST'
       });
-      const trackData = await trackRes.json();
+      const trackData = await trackRes.json().catch(() => ({}));
 
       if (!trackRes.ok) {
-        if (trackData.requiresVip) {
+        if (trackData?.requiresVip) {
           setDownloadLimitAlert(trackData.error || 'Batas unduh surat paket Reguler (3x) telah tercapai. Tingkatkan ke VIP untuk mengunduh berkali-kali tanpa batas.');
           setShowVipModal(true);
           return;
         }
-        alert(trackData.error || 'Gagal memproses izin unduh dokumen.');
-        return;
+        if (trackRes.status === 403) {
+          alert(trackData?.error || 'Batas unduh dokumen telah tercapai.');
+          return;
+        }
+        console.warn("Track download notice:", trackData);
+      } else {
+        // Update local item download count so UI shows live stats
+        if (typeof trackData?.downloadCount === 'number') {
+          setData(prev => prev.map(d => d.id === surat.id ? { ...d, downloadCount: trackData.downloadCount } : d));
+        }
       }
-
-      // Update local item download count so UI shows live stats
-      setData(prev => prev.map(d => d.id === surat.id ? { ...d, downloadCount: trackData.downloadCount } : d));
     } catch (err) {
       console.warn("Track download fallback:", err);
     }
