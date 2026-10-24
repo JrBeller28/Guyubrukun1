@@ -22,7 +22,7 @@ function isValidGeminiApiKey(key?: string): boolean {
   return k.length >= 20 && !k.startsWith('MY_') && !k.startsWith('YOUR_') && !k.includes('placeholder');
 }
 
-import { connectDB as connectCachedDB } from "./src/db/db.js";
+import { connectDB as connectCachedDB } from "./src/db/db.ts";
 
 async function connectDB() {
   await connectCachedDB();
@@ -455,6 +455,7 @@ const SuratSchema = new mongoose.Schema({
   capWidth: { type: Number, default: 40 },
   capHeight: { type: Number, default: 40 },
   hasCap: { type: Boolean, default: false },
+  downloadCount: { type: Number, default: 0 },
   userId: { type: String },
   userName: { type: String },
   rtId: { type: String, required: true },
@@ -4904,6 +4905,56 @@ app.post("/api/backup/restore", enforceRoles(['admin']), async (req, res) => {
     res.json({ success: true, message: "Restore data berhasil dilakukan (hanya sebagian modul utama)." });
   } catch (e: any) {
     res.status(500).json({ error: "Gagal memulihkan database cadangan." });
+  }
+});
+
+// ==========================================
+// SURAT PENGANTAR: TRACK & VALIDATE DOWNLOAD (REGULER MAX 3x, VIP UNLIMITED)
+// ==========================================
+app.post("/api/surat/:id/track-download", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rtId = getAuthorizedRtId(req);
+    await connectDB();
+
+    const surat = await SuratModel.findOne({ id, rtId });
+    if (!surat) {
+      return res.status(404).json({ error: "Surat pengantar tidak ditemukan." });
+    }
+
+    const tenant = await TenantModel.findOne({ rtId });
+    const isVip = tenant?.isVip || tenant?.packageTier === 'VIP';
+    const userRole = (req as any).user?.role;
+
+    const currentCount = Number(surat.downloadCount || 0);
+
+    // Jika bukan VIP dan bukan developer: batas maksimal 3x download
+    if (!isVip && userRole !== 'developer') {
+      const MAX_REGULER_DOWNLOAD = 3;
+      if (currentCount >= MAX_REGULER_DOWNLOAD) {
+        return res.status(403).json({
+          error: `Batas unduh paket Reguler/Gratisan (${MAX_REGULER_DOWNLOAD}x) untuk surat ini telah tercapai. Tingkatkan ke VIP untuk mengunduh berkali-kali tanpa batas.`,
+          requiresVip: true,
+          downloadCount: currentCount,
+          maxAllowed: MAX_REGULER_DOWNLOAD
+        });
+      }
+    }
+
+    // Increment download count
+    surat.downloadCount = currentCount + 1;
+    await surat.save();
+
+    res.json({
+      success: true,
+      downloadCount: surat.downloadCount,
+      isVip: Boolean(isVip || userRole === 'developer'),
+      unlimited: Boolean(isVip || userRole === 'developer'),
+      remaining: isVip || userRole === 'developer' ? 'unlimited' : Math.max(0, 3 - surat.downloadCount)
+    });
+  } catch (err: any) {
+    console.error("Track download error:", err);
+    res.status(500).json({ error: "Gagal memverifikasi izin unduh surat." });
   }
 });
 
