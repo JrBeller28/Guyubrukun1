@@ -60,9 +60,20 @@ const PORT = process.env.NODE_ENV === "production" ? (Number(process.env.APP_POR
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Vercel Serverless rewrite support: map /api?__route=... back to /api/...
+app.use((req, res, next) => {
+  if (req.query && req.query.__route) {
+    const subRoute = String(req.query.__route).replace(/^\/+/, '');
+    const searchIndex = req.url.indexOf('?');
+    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
+    req.url = `/api/${subRoute}${queryString}`;
+  }
+  next();
+});
+
 // Global DB connection middleware for APIs to ensure stable connection on serverless/cold-start
 app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/")) {
+  if (req.path.startsWith("/api/") || req.url.startsWith("/api/")) {
     try {
       await connectDB();
     } catch (err) {
