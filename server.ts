@@ -60,35 +60,9 @@ const PORT = process.env.NODE_ENV === "production" ? (Number(process.env.APP_POR
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Vercel Serverless rewrite support: map /api?__route=..., [...slug], or x-matched-path back to /api/...
-app.use((req, res, next) => {
-  const matchedPath = (req.headers['x-matched-path'] || req.headers['x-vercel-matched-path']) as string | undefined;
-
-  if (req.query && req.query.__route) {
-    const subRoute = String(req.query.__route).replace(/^\/+/, '');
-    const searchIndex = req.url.indexOf('?');
-    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
-    req.url = `/api/${subRoute}${queryString}`;
-  } else if (req.query && req.query.slug) {
-    const slugStr = Array.isArray(req.query.slug) ? req.query.slug.join('/') : String(req.query.slug);
-    const cleanSlug = slugStr.replace(/^\/+/, '');
-    const searchIndex = req.url.indexOf('?');
-    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
-    req.url = `/api/${cleanSlug}${queryString}`;
-  } else if (matchedPath && matchedPath.startsWith('/api/') && (!req.url || req.url === '/' || req.url === '/api' || req.url.startsWith('/api?'))) {
-    const searchIndex = req.url.indexOf('?');
-    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
-    req.url = `${matchedPath}${queryString}`;
-  } else if (process.env.VERCEL && req.url && !req.url.startsWith('/api/') && !req.url.startsWith('/api?')) {
-    const cleanPath = req.url.startsWith('/') ? req.url : `/${req.url}`;
-    req.url = `/api${cleanPath}`;
-  }
-  next();
-});
-
 // Global DB connection middleware for APIs to ensure stable connection on serverless/cold-start
 app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/") || req.url.startsWith("/api/")) {
+  if (req.path.startsWith("/api/")) {
     try {
       await connectDB();
     } catch (err) {
@@ -481,7 +455,6 @@ const SuratSchema = new mongoose.Schema({
   capWidth: { type: Number, default: 40 },
   capHeight: { type: Number, default: 40 },
   hasCap: { type: Boolean, default: false },
-  downloadCount: { type: Number, default: 0 },
   userId: { type: String },
   userName: { type: String },
   rtId: { type: String, required: true },
@@ -1970,12 +1943,10 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
       await user.save();
     }
 
-    if (!process.env.VERCEL) {
-      if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
-        return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
-      }
-      activeSessions.set(user.id, Date.now());
+    if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
+      return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
     }
+    activeSessions.set(user.id, Date.now());
 
     // Check Tenant Subscription status
     const tenant = await TenantModel.findOne({ rtId: user.rtId });
@@ -4454,108 +4425,6 @@ app.delete("/api/data/:resource/:id", async (req, res) => {
   res.json({ message: "Deleted successfully" });
 });
 
-// ==========================================
-// SURAT PENGANTAR DOWNLOAD TRACKING & PERMISSIONS
-// ==========================================
-app.post("/api/surat/:id/track-download", async (req, res) => {
-  try {
-    await connectDB();
-    const suratId = req.params.id;
-    const userAuth = getAuthUser(req);
-    const rtId = getAuthorizedRtId(req);
-
-    // Look for the surat by id
-    let surat = await SuratModel.findOne({ id: suratId });
-    if (!surat) {
-      return res.status(404).json({ error: "Dokumen surat tidak ditemukan." });
-    }
-
-    const targetRt = surat.rtId || rtId;
-    const tenant = await TenantModel.findOne({ rtId: targetRt });
-    
-    // Check VIP status: developer, admin/pengurus, user.isVip, or RT tenant is VIP / VIP tier
-    const isVip = Boolean(
-      userAuth?.role === 'developer' ||
-      userAuth?.role === 'admin' ||
-      userAuth?.role === 'pengurus' ||
-      userAuth?.role === 'sekretaris' ||
-      userAuth?.isVip ||
-      tenant?.isVip ||
-      tenant?.packageTier === 'VIP'
-    );
-
-    const currentCount = Number(surat.downloadCount || 0);
-
-    // Non-VIP limit is 3 downloads per surat
-    if (!isVip && currentCount >= 3) {
-      return res.status(403).json({
-        error: "Batas unduh surat paket Reguler (3x) telah tercapai. Tingkatkan ke VIP untuk mengunduh berkali-kali tanpa batas.",
-        requiresVip: true,
-        downloadCount: currentCount,
-        limit: 3
-      });
-    }
-
-    // Increment download count
-    const updatedCount = currentCount + 1;
-    surat.downloadCount = updatedCount;
-    await surat.save();
-
-    // Log audit for surat download
-    const uploader = userAuth?.nama || userAuth?.username || surat.nama || 'Warga';
-    await logAudit(targetRt, uploader, "DOWNLOAD_SURAT", `Mengunduh berkas Surat Pengantar (${surat.nomorSurat || surat.id}) ke-${updatedCount}`, null, { id: surat.id, downloadCount: updatedCount });
-
-    return res.json({
-      success: true,
-      downloadCount: updatedCount,
-      isVip,
-      remaining: isVip ? 999999 : Math.max(0, 3 - updatedCount),
-      message: "Izin unduh berhasil disetujui."
-    });
-  } catch (err: any) {
-    console.error("[Track Surat Download Error]:", err);
-    return res.status(500).json({ error: "Gagal memproses izin unduh dokumen: " + (err.message || "Kesalahan server") });
-  }
-});
-
-app.get(["/api/surat/:id/track-download", "/api/surat/:id/download-status"], async (req, res) => {
-  try {
-    await connectDB();
-    const suratId = req.params.id;
-    const userAuth = getAuthUser(req);
-    const rtId = getAuthorizedRtId(req);
-
-    const surat = await SuratModel.findOne({ id: suratId });
-    if (!surat) {
-      return res.status(404).json({ error: "Dokumen surat tidak ditemukan." });
-    }
-
-    const targetRt = surat.rtId || rtId;
-    const tenant = await TenantModel.findOne({ rtId: targetRt });
-    const isVip = Boolean(
-      userAuth?.role === 'developer' ||
-      userAuth?.role === 'admin' ||
-      userAuth?.role === 'pengurus' ||
-      userAuth?.role === 'sekretaris' ||
-      userAuth?.isVip ||
-      tenant?.isVip ||
-      tenant?.packageTier === 'VIP'
-    );
-
-    const currentCount = Number(surat.downloadCount || 0);
-
-    return res.json({
-      success: true,
-      downloadCount: currentCount,
-      isVip,
-      limit: 3,
-      remaining: isVip ? 999999 : Math.max(0, 3 - currentCount),
-      canDownload: isVip || currentCount < 3
-    });
-  } catch (err: any) {
-    return res.status(500).json({ error: "Gagal memeriksa status unduh: " + (err.message || "Kesalahan server") });
-  }
-});
 
 // ==========================================
 // SEDEKAH / INFAQ MASJID ENDPOINT
