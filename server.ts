@@ -1955,10 +1955,12 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
       await user.save();
     }
 
-    if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
-      return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
+    if (!process.env.VERCEL) {
+      if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
+        return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
+      }
+      activeSessions.set(user.id, Date.now());
     }
-    activeSessions.set(user.id, Date.now());
 
     // Check Tenant Subscription status
     const tenant = await TenantModel.findOne({ rtId: user.rtId });
