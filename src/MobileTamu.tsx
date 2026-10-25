@@ -20,6 +20,9 @@ export const MobileTamu = ({ onBack, currentUser }: { onBack: () => void, curren
 
   useEffect(() => {
     fetchData();
+    const handleUpdate = () => fetchData();
+    window.addEventListener('app_data_update', handleUpdate);
+    return () => window.removeEventListener('app_data_update', handleUpdate);
   }, []);
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
