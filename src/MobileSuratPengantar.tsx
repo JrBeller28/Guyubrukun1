@@ -307,6 +307,9 @@ export const MobileSuratPengantar = ({
 
   useEffect(() => {
     fetchData();
+    const handleUpdate = () => fetchData();
+    window.addEventListener('app_data_update', handleUpdate);
+    return () => window.removeEventListener('app_data_update', handleUpdate);
   }, []);
 
   // Sync state if currentUser changes
