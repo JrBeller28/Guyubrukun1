@@ -5521,6 +5521,56 @@ export default function App() {
     };
   }, [user?.id]);
 
+  // Otomatis refresh data saat aplikasi dibuka kembali dari background / minimised / tab switched
+  useEffect(() => {
+    let lastRefreshTime = 0;
+
+    const triggerAutoRefresh = (reason: string) => {
+      const now = Date.now();
+      // Throttling 1.5s agar tidak terjadi request beruntun saat beberapa event fired bersamaan
+      if (now - lastRefreshTime < 1500) return;
+      lastRefreshTime = now;
+
+      // Trigger event global agar seluruh komponen/screen yang menampilkan data memperbarui state & re-fetch
+      window.dispatchEvent(new CustomEvent('app_data_update', { detail: { type: 'auto_refresh', reason } }));
+
+      // Ping server untuk memastikan koneksi & sesi tetap aktif
+      if (user?.id) {
+        apiFetch('/api/ping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: user.id })
+        }).catch(() => {});
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerAutoRefresh('visibilitychange');
+      }
+    };
+
+    const handleFocus = () => {
+      triggerAutoRefresh('focus');
+    };
+
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted || document.visibilityState === 'visible') {
+        triggerAutoRefresh('pageshow');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [user?.id]);
+
   const [globalEvents, setGlobalEvents] = useState<any[]>([]);
   const [activeToast, setActiveToast] = useState<{ id: string; title: string; time: string; customText?: string; category?: string } | null>(null);
 
