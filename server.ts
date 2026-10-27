@@ -87,9 +87,35 @@ app.use(cookieParser());
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ limit: "15mb", extended: true }));
 
+// Vercel Serverless rewrite support: map /api?__route=..., [...slug], or x-matched-path back to /api/...
+app.use((req, res, next) => {
+  const matchedPath = (req.headers['x-matched-path'] || req.headers['x-vercel-matched-path']) as string | undefined;
+
+  if (req.query && req.query.__route) {
+    const subRoute = String(req.query.__route).replace(/^\/+/, '');
+    const searchIndex = req.url.indexOf('?');
+    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
+    req.url = `/api/${subRoute}${queryString}`;
+  } else if (req.query && req.query.slug) {
+    const slugStr = Array.isArray(req.query.slug) ? req.query.slug.join('/') : String(req.query.slug);
+    const cleanSlug = slugStr.replace(/^\/+/, '');
+    const searchIndex = req.url.indexOf('?');
+    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
+    req.url = `/api/${cleanSlug}${queryString}`;
+  } else if (matchedPath && matchedPath.startsWith('/api/') && (!req.url || req.url === '/' || req.url === '/api' || req.url.startsWith('/api?'))) {
+    const searchIndex = req.url.indexOf('?');
+    const queryString = searchIndex !== -1 ? req.url.substring(searchIndex) : '';
+    req.url = `${matchedPath}${queryString}`;
+  } else if (process.env.VERCEL && req.url && !req.url.startsWith('/api/') && !req.url.startsWith('/api?')) {
+    const cleanPath = req.url.startsWith('/') ? req.url : `/${req.url}`;
+    req.url = `/api${cleanPath}`;
+  }
+  next();
+});
+
 // Global DB connection middleware for APIs to ensure stable connection on serverless/cold-start
 app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/")) {
+  if (req.path.startsWith("/api/") || req.url.startsWith("/api/")) {
     try {
       await connectDB();
     } catch (err) {
@@ -500,6 +526,7 @@ const SuratSchema = new mongoose.Schema({
   capWidth: { type: Number, default: 40 },
   capHeight: { type: Number, default: 40 },
   hasCap: { type: Boolean, default: false },
+  downloadCount: { type: Number, default: 0 },
   userId: { type: String },
   userName: { type: String },
   rtId: { type: String, required: true },
@@ -2036,10 +2063,12 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
       await user.save();
     }
 
-    if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
-      return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
+    if (!process.env.VERCEL) {
+      if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
+        return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
+      }
+      activeSessions.set(user.id, Date.now());
     }
-    activeSessions.set(user.id, Date.now());
 
     // Check Tenant Subscription status
     const tenant = await TenantModel.findOne({ rtId: user.rtId });
@@ -2596,9 +2625,10 @@ app.get("/api/warga-dokumen-kk", enforceRoles(['admin', 'sekretaris']), async (r
   const rtId = getAuthorizedRtId(req);
   try {
     await connectDB();
-    const users = await UserModel.find({ rtId, role: { $ne: 'developer' } }).select('+dokumenKk').lean();
+    const users = await UserModel.find({ rtId, role: { $ne: 'developer' } }).select('+dokumenKk +dokumenKtp').lean();
     const formatted = users.map((u: any) => {
-      const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
+      const hasKk = Boolean(u.hasKk || (u.dokumenKk && String(u.dokumenKk).trim() !== ''));
+      const hasKtp = Boolean(u.hasKtp || (Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '')));
       const resolvedNoKk = u.noKk || (hasKk ? extractNoKkFromDocument(String(u.dokumenKk), u.username, u.nama) : '');
       if (hasKk && !u.noKk && resolvedNoKk && u._id) {
         UserModel.updateOne({ _id: u._id }, { $set: { noKk: resolvedNoKk } }).catch(() => {});
@@ -2607,6 +2637,7 @@ app.get("/api/warga-dokumen-kk", enforceRoles(['admin', 'sekretaris']), async (r
         ...u,
         noKk: resolvedNoKk || u.noKk || '',
         hasKk,
+        hasKtp,
         isOnline: activeSessions.has(u.id) && Date.now() - activeSessions.get(u.id)! < 15000
       };
     });
@@ -3368,7 +3399,7 @@ app.get("/api/warga", async (req, res) => {
     ];
   }
 
-  let dbQuery = UserModel.find(query);
+  let dbQuery = UserModel.find(query).select('+dokumenKk +dokumenKtp');
   let sortedUsers: any[] = [];
   let total = 0;
 
@@ -3377,7 +3408,8 @@ app.get("/api/warga", async (req, res) => {
     const skip = (page - 1) * limit;
     const users = await dbQuery.skip(skip).limit(limit).lean();
     sortedUsers = users.map((u: any) => {
-      const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
+      const hasKk = Boolean(u.hasKk || (u.dokumenKk && String(u.dokumenKk).trim() !== ''));
+      const hasKtp = Boolean(u.hasKtp || (Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '')));
       const resolvedNoKk = u.noKk || (hasKk ? extractNoKkFromDocument(String(u.dokumenKk), u.username, u.nama) : '');
       if (hasKk && !u.noKk && resolvedNoKk && u._id) {
         UserModel.updateOne({ _id: u._id }, { $set: { noKk: resolvedNoKk } }).catch(() => {});
@@ -3386,6 +3418,7 @@ app.get("/api/warga", async (req, res) => {
         ...u,
         noKk: resolvedNoKk || u.noKk || '',
         hasKk,
+        hasKtp,
         isOnline: activeSessions.has(u.id) && Date.now() - activeSessions.get(u.id)! < 15000
       };
     });
@@ -3409,7 +3442,8 @@ app.get("/api/warga", async (req, res) => {
     sortedUsers = users.map((u: any) => {
       const isOnline = activeSessions.has(u.id) && Date.now() - activeSessions.get(u.id)! < 15000;
       const isOwn = Boolean(requesterId && String(u.id) === String(requesterId));
-      const hasKk = Boolean(u.dokumenKk && String(u.dokumenKk).trim() !== '');
+      const hasKk = Boolean(u.hasKk || (u.dokumenKk && String(u.dokumenKk).trim() !== ''));
+      const hasKtp = Boolean(u.hasKtp || (Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp && String(u.dokumenKtp).trim() !== '')));
       const resolvedNoKk = u.noKk || (hasKk ? extractNoKkFromDocument(String(u.dokumenKk), u.username, u.nama) : '');
       if (hasKk && !u.noKk && resolvedNoKk && u._id) {
         UserModel.updateOne({ _id: u._id }, { $set: { noKk: resolvedNoKk } }).catch(() => {});
@@ -3430,7 +3464,7 @@ app.get("/api/warga", async (req, res) => {
           jenisKelamin: u.jenisKelamin,
           members: u.members || [],
           hasKk,
-          hasKtp: Array.isArray(u.dokumenKtp) ? u.dokumenKtp.length > 0 : Boolean(u.dokumenKtp),
+          hasKtp,
           isApproved: u.isApproved,
           rtId: u.rtId,
           isOnline
@@ -3440,6 +3474,7 @@ app.get("/api/warga", async (req, res) => {
         ...u,
         noKk: resolvedNoKk || u.noKk || '',
         hasKk,
+        hasKtp,
         isOnline
       };
     });
@@ -4063,10 +4098,24 @@ app.post("/api/iuran/remind", enforceRoles(['admin', 'pengurus', 'sekretaris', '
   }
 });
 
+async function checkRtVipStatus(rtId: string, userRole?: string): Promise<boolean> {
+  if (userRole === 'developer') return true;
+  const config = await RtConfigModel.findOne({ rtId }).lean();
+  return Boolean(config?.isVip || config?.packageTier === 'VIP');
+}
+
 // --- COMPATIBLE APP_DATA / MULTI-MODULE ENDPOINTS ---
 app.get("/api/data/:resource", async (req, res) => {
   const rtId = getAuthorizedRtId(req);
   const resource = req.params.resource;
+
+  if (['umkm', 'inventaris', 'notulen', 'voting'].includes(resource)) {
+    const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+    const isVip = await checkRtVipStatus(rtId, userRole);
+    if (!isVip) {
+      return res.status(403).json({ error: `Fitur ${resource.toUpperCase()} hanya dapat diakses oleh RT berstatus VIP.` });
+    }
+  }
   
   const map: { [key: string]: mongoose.Model<any> } = {
     surat: SuratModel,
@@ -4192,6 +4241,14 @@ app.get("/api/data/:resource", async (req, res) => {
 app.post("/api/data/:resource", async (req, res) => {
   const rtId = getAuthorizedRtId(req);
   const resource = req.params.resource;
+
+  if (['umkm', 'inventaris', 'notulen', 'voting'].includes(resource)) {
+    const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+    const isVip = await checkRtVipStatus(rtId, userRole);
+    if (!isVip) {
+      return res.status(403).json({ error: `Fitur ${resource.toUpperCase()} hanya dapat diakses oleh RT berstatus VIP.` });
+    }
+  }
   
   const map: { [key: string]: mongoose.Model<any> } = {
     surat: SuratModel,
@@ -4376,6 +4433,14 @@ app.put("/api/data/:resource/:id", async (req, res) => {
   const rtId = getAuthorizedRtId(req);
   const resource = req.params.resource;
 
+  if (['umkm', 'inventaris', 'notulen', 'voting'].includes(resource)) {
+    const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+    const isVip = await checkRtVipStatus(rtId, userRole);
+    if (!isVip) {
+      return res.status(403).json({ error: `Fitur ${resource.toUpperCase()} hanya dapat diakses oleh RT berstatus VIP.` });
+    }
+  }
+
   const map: { [key: string]: mongoose.Model<any> } = {
     surat: SuratModel,
     laporan: LaporanModel,
@@ -4528,6 +4593,14 @@ app.delete("/api/data/:resource/:id", async (req, res) => {
   const rtId = getAuthorizedRtId(req);
   const resource = req.params.resource;
 
+  if (['umkm', 'inventaris', 'notulen', 'voting'].includes(resource)) {
+    const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+    const isVip = await checkRtVipStatus(rtId, userRole);
+    if (!isVip) {
+      return res.status(403).json({ error: `Fitur ${resource.toUpperCase()} hanya dapat diakses oleh RT berstatus VIP.` });
+    }
+  }
+
   const map: { [key: string]: mongoose.Model<any> } = {
     surat: SuratModel,
     laporan: LaporanModel,
@@ -4585,6 +4658,108 @@ app.delete("/api/data/:resource/:id", async (req, res) => {
   res.json({ message: "Deleted successfully" });
 });
 
+// ==========================================
+// SURAT PENGANTAR DOWNLOAD TRACKING & PERMISSIONS
+// ==========================================
+app.post("/api/surat/:id/track-download", async (req, res) => {
+  try {
+    await connectDB();
+    const suratId = req.params.id;
+    const userAuth = getAuthUser(req);
+    const rtId = getAuthorizedRtId(req);
+
+    // Look for the surat by id
+    let surat = await SuratModel.findOne({ id: suratId });
+    if (!surat) {
+      return res.status(404).json({ error: "Dokumen surat tidak ditemukan." });
+    }
+
+    const targetRt = surat.rtId || rtId;
+    const tenant = await TenantModel.findOne({ rtId: targetRt });
+    
+    // Check VIP status: developer, admin/pengurus, user.isVip, or RT tenant is VIP / VIP tier
+    const isVip = Boolean(
+      userAuth?.role === 'developer' ||
+      userAuth?.role === 'admin' ||
+      userAuth?.role === 'pengurus' ||
+      userAuth?.role === 'sekretaris' ||
+      userAuth?.isVip ||
+      tenant?.isVip ||
+      tenant?.packageTier === 'VIP'
+    );
+
+    const currentCount = Number(surat.downloadCount || 0);
+
+    // Non-VIP limit is 3 downloads per surat
+    if (!isVip && currentCount >= 3) {
+      return res.status(403).json({
+        error: "Batas unduh surat paket Reguler (3x) telah tercapai. Tingkatkan ke VIP untuk mengunduh berkali-kali tanpa batas.",
+        requiresVip: true,
+        downloadCount: currentCount,
+        limit: 3
+      });
+    }
+
+    // Increment download count
+    const updatedCount = currentCount + 1;
+    surat.downloadCount = updatedCount;
+    await surat.save();
+
+    // Log audit for surat download
+    const uploader = userAuth?.nama || userAuth?.username || surat.nama || 'Warga';
+    await logAudit(targetRt, uploader, "DOWNLOAD_SURAT", `Mengunduh berkas Surat Pengantar (${surat.nomorSurat || surat.id}) ke-${updatedCount}`, null, { id: surat.id, downloadCount: updatedCount });
+
+    return res.json({
+      success: true,
+      downloadCount: updatedCount,
+      isVip,
+      remaining: isVip ? 999999 : Math.max(0, 3 - updatedCount),
+      message: "Izin unduh berhasil disetujui."
+    });
+  } catch (err: any) {
+    console.error("[Track Surat Download Error]:", err);
+    return res.status(500).json({ error: "Gagal memproses izin unduh dokumen: " + (err.message || "Kesalahan server") });
+  }
+});
+
+app.get(["/api/surat/:id/track-download", "/api/surat/:id/download-status"], async (req, res) => {
+  try {
+    await connectDB();
+    const suratId = req.params.id;
+    const userAuth = getAuthUser(req);
+    const rtId = getAuthorizedRtId(req);
+
+    const surat = await SuratModel.findOne({ id: suratId });
+    if (!surat) {
+      return res.status(404).json({ error: "Dokumen surat tidak ditemukan." });
+    }
+
+    const targetRt = surat.rtId || rtId;
+    const tenant = await TenantModel.findOne({ rtId: targetRt });
+    const isVip = Boolean(
+      userAuth?.role === 'developer' ||
+      userAuth?.role === 'admin' ||
+      userAuth?.role === 'pengurus' ||
+      userAuth?.role === 'sekretaris' ||
+      userAuth?.isVip ||
+      tenant?.isVip ||
+      tenant?.packageTier === 'VIP'
+    );
+
+    const currentCount = Number(surat.downloadCount || 0);
+
+    return res.json({
+      success: true,
+      downloadCount: currentCount,
+      isVip,
+      limit: 3,
+      remaining: isVip ? 999999 : Math.max(0, 3 - currentCount),
+      canDownload: isVip || currentCount < 3
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: "Gagal memeriksa status unduh: " + (err.message || "Kesalahan server") });
+  }
+});
 
 // ==========================================
 // SEDEKAH / INFAQ MASJID ENDPOINT
@@ -4635,12 +4810,22 @@ app.post("/api/sedekah", async (req, res) => {
 // ==========================================
 app.get("/api/voting", async (req, res) => {
   const rtId = req.headers['x-rt-id'] as string || 'rt01';
+  const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+  const isVip = await checkRtVipStatus(rtId, userRole);
+  if (!isVip) {
+    return res.status(403).json({ error: "Fitur Voting Warga hanya tersedia untuk RT berstatus VIP." });
+  }
   const data = await VotingModel.find({ rtId }).sort({ createdAt: -1 }).lean();
   res.json({ data });
 });
 
 app.post("/api/voting", enforceRoles(['admin']), async (req, res) => {
   const rtId = req.headers['x-rt-id'] as string || 'rt01';
+  const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+  const isVip = await checkRtVipStatus(rtId, userRole);
+  if (!isVip) {
+    return res.status(403).json({ error: "Fitur Voting Warga hanya tersedia untuk RT berstatus VIP." });
+  }
   const { title, category, description, deadline, options, status, createdBy } = req.body;
 
   if (!title || !Array.isArray(options) || options.length < 2) {
@@ -5072,6 +5257,11 @@ app.post("/api/backup/restore", enforceRoles(['admin']), async (req, res) => {
 app.post("/api/gemini/action", async (req, res) => {
   const { action, payload } = req.body;
   const rtId = req.headers['x-rt-id'] as string || 'rt01';
+  const userRole = (req as any).user?.role || (req.headers['x-user-role'] as string);
+  const isVip = await checkRtVipStatus(rtId, userRole);
+  if (!isVip) {
+    return res.status(403).json({ error: "Fitur Smart RT AI hanya tersedia untuk RT berstatus VIP." });
+  }
 
   try {
     let prompt = "";
