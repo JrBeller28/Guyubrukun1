@@ -30,6 +30,7 @@ function isValidGeminiApiKey(key?: string): boolean {
 }
 
 import { connectDB as connectCachedDB } from "./src/db/db.js";
+import { resolveWargaKkRegion } from "./src/utils/kkRegionResolver.js";
 
 async function connectDB() {
   await connectCachedDB();
@@ -2645,6 +2646,220 @@ app.get("/api/warga-dokumen-kk", enforceRoles(['admin', 'sekretaris']), async (r
   } catch (err: any) {
     console.error("Gagal mengambil data dokumen KK:", err);
     res.status(500).json({ error: "Gagal mengambil data dokumen KK" });
+  }
+});
+
+// Identifikasi kategori wilayah KK secara batch. OCR hanya dijalankan untuk dokumen gambar yang belum bisa dikenali dari metadata.
+const KK_REGION_CATEGORIES = ['Kabupaten Tangerang', 'Kota Tangerang', 'Luar Kota Tangerang'] as const;
+
+async function recognizeKkAddressText(documentValue: unknown, worker: any): Promise<string> {
+  const doc = String(documentValue || '').trim();
+  if (!doc || !worker) return '';
+  if (doc.startsWith('data:image/svg+xml')) {
+    try {
+      const payload = doc.split(',')[1] || '';
+      return doc.includes(';base64,')
+        ? Buffer.from(payload, 'base64').toString('utf8')
+        : decodeURIComponent(payload);
+    } catch {
+      return '';
+    }
+  }
+  const match = doc.match(/^data:(image\/(?:jpeg|jpg|png|webp|bmp|tiff));base64,([\s\S]+)$/i);
+  if (!match) return '';
+  const imageBuffer = Buffer.from(match[2], 'base64');
+  // Batasi ukuran agar satu dokumen yang sangat besar tidak menghabiskan memori fungsi serverless.
+  if (imageBuffer.length === 0 || imageBuffer.length > 10 * 1024 * 1024) return '';
+  const recognized = await worker.recognize(imageBuffer);
+  return String(recognized?.data?.text || '');
+}
+
+app.post('/api/warga/identifikasi-semua-kk', enforceRoles(['admin', 'sekretaris']), async (req, res) => {
+  const rtId = getAuthorizedRtId(req);
+  const offset = Math.max(0, Number.parseInt(String(req.body?.offset ?? '0'), 10) || 0);
+  const limit = Math.max(1, Math.min(3, Number.parseInt(String(req.body?.limit ?? '2'), 10) || 2));
+
+  let ocrWorker: any = null;
+  let ocrInitAttempted = false;
+  let ocrFailures = 0;
+  try {
+    await connectDB();
+    const users = await UserModel.find({ rtId, role: { $ne: 'developer' } })
+      .select('id username nama alamat noKk role rtId kkCategory wilayahKk kkVerifiedByAdmin kkKecamatan kkKelurahan kkKabupatenKota kkProvinsi kkScanStatus kkScanConfidence kkScanSource alamatKk dokumenKk')
+      .select('+dokumenKk')
+      .sort({ id: 1 })
+      .lean();
+
+    const uploaded = users.filter((u: any) => Boolean(u.dokumenKk && String(u.dokumenKk).trim()));
+    const batch = uploaded.slice(offset, offset + limit);
+    const categories = {
+      'Kabupaten Tangerang': 0,
+      'Kota Tangerang': 0,
+      'Luar Kota Tangerang': 0
+    } as Record<string, number>;
+    let needsReview = 0;
+    const results: Array<{ id: string; nama: string; category: string; needsReview: boolean; source?: string; skippedManual?: boolean }> = [];
+
+    for (const user of batch as any[]) {
+      const hasManualClassification = Boolean(
+        user.kkVerifiedByAdmin && KK_REGION_CATEGORIES.includes(user.kkCategory as any)
+      );
+      let region = resolveWargaKkRegion(user);
+      let ocrText = '';
+
+      if (!hasManualClassification) {
+        // Abaikan kategori hasil scan sebelumnya agar tombol scan dapat menghitung ulang dari bukti sumber.
+        const scanInput = {
+          ...user,
+          kkCategory: '',
+          wilayahKk: '',
+          kkVerifiedByAdmin: false,
+          kkScanStatus: '',
+          kkScanConfidence: ''
+        };
+        region = resolveWargaKkRegion(scanInput);
+
+        const docValue = String(user.dokumenKk || '').trim();
+        const isImage = /^data:image\/(?!svg\+xml)/i.test(docValue);
+        if (region.category === 'Belum Teridentifikasi' && isImage) {
+          try {
+            if (!ocrInitAttempted) {
+              ocrInitAttempted = true;
+              const Tesseract = await import('tesseract.js');
+              ocrWorker = await Tesseract.createWorker('ind+eng');
+            }
+            if (ocrWorker) {
+              ocrText = await recognizeKkAddressText(docValue, ocrWorker);
+              if (ocrText) region = resolveWargaKkRegion({ ...scanInput, kkOcrText: ocrText });
+            }
+          } catch (ocrError: any) {
+            ocrFailures++;
+            console.warn('[KK Region Scan] OCR gagal untuk satu dokumen; data ditandai untuk ditinjau.');
+          }
+        }
+
+        const update: Record<string, any> = {
+          kkCategory: region.category,
+          wilayahKk: region.category === 'Belum Teridentifikasi' ? '' : region.category,
+          kkVerifiedByAdmin: false,
+          kkScanStatus: region.category === 'Belum Teridentifikasi' ? 'needs_review' : 'automatic',
+          kkScanConfidence: region.confidence || 'low',
+          kkScanSource: region.source || 'insufficient-address-data',
+          kkRegionScannedAt: new Date()
+        };
+        if (region.kecamatan) update.kkKecamatan = region.kecamatan;
+        if (region.kelurahan) update.kkKelurahan = region.kelurahan;
+        if (region.kabupatenKota) update.kkKabupatenKota = region.kabupatenKota;
+        if (region.provinsi) update.kkProvinsi = region.provinsi;
+        if (region.alamat && region.alamat !== 'Alamat asal KK belum terbaca' && !user.alamatKk) {
+          update.alamatKk = region.alamat;
+        }
+        await UserModel.updateOne({ _id: user._id, rtId }, { $set: update });
+      }
+
+      if (KK_REGION_CATEGORIES.includes(region.category as any)) {
+        categories[region.category] = (categories[region.category] || 0) + 1;
+      } else {
+        needsReview++;
+      }
+      results.push({
+        id: String(user.id),
+        nama: String(user.nama || user.username || 'Warga'),
+        category: region.category,
+        needsReview: region.category === 'Belum Teridentifikasi',
+        source: region.source,
+        skippedManual: hasManualClassification
+      });
+    }
+
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.json({
+      success: true,
+      totalUploaded: uploaded.length,
+      offset,
+      limit,
+      batchScanned: batch.length,
+      totalScanned: batch.length,
+      nextOffset: offset + batch.length,
+      done: offset + batch.length >= uploaded.length,
+      categories,
+      needsReview,
+      ocrFailures,
+      results
+    });
+  } catch (error: any) {
+    console.error('[KK Region Scan] Gagal memproses batch identifikasi:', error?.message || error);
+    res.status(500).json({ error: 'Identifikasi KK gagal diproses. Periksa koneksi database dan Runtime Logs Vercel.' });
+  } finally {
+    if (ocrWorker) {
+      try { await ocrWorker.terminate(); } catch {}
+    }
+  }
+});
+
+// Pengurus RT menyimpan koreksi kategori alamat KK secara manual.
+app.put('/api/warga/:id/kategori-kk', enforceRoles(['admin']), async (req, res) => {
+  const rtId = getAuthorizedRtId(req);
+  const targetId = String(req.params.id || '');
+  const category = String(req.body?.kkCategory || '').trim();
+  if (!KK_REGION_CATEGORIES.includes(category as any)) {
+    return res.status(400).json({ error: 'Pilih salah satu kategori yang valid: Kabupaten Tangerang, Kota Tangerang, atau Luar Kota Tangerang.' });
+  }
+
+  try {
+    await connectDB();
+    const user = await UserModel.findOne({ id: targetId, rtId });
+    if (!user) return res.status(404).json({ error: 'Data warga tidak ditemukan di RT ini.' });
+
+    const actor = getAuthUser(req);
+    const beforeRegion = {
+      kkCategory: user.kkCategory || '',
+      kkKecamatan: user.kkKecamatan || '',
+      kkKelurahan: user.kkKelurahan || '',
+      alamatKk: user.alamatKk || ''
+    };
+    user.kkCategory = category;
+    user.wilayahKk = category;
+    user.kkKecamatan = String(req.body?.kkKecamatan ?? user.kkKecamatan ?? '').trim();
+    user.kkKelurahan = String(req.body?.kkKelurahan ?? user.kkKelurahan ?? '').trim();
+    user.alamatKk = String(req.body?.alamatKk ?? user.alamatKk ?? '').trim();
+    user.kkVerifiedByAdmin = true;
+    user.kkScanStatus = 'manual';
+    user.kkScanConfidence = 'high';
+    user.kkScanSource = 'manual';
+    user.kkRegionReviewedAt = new Date();
+    user.kkRegionReviewedBy = actor?.nama || actor?.username || 'Ketua RT';
+    await user.save();
+
+    const afterRegion = {
+      kkCategory: user.kkCategory,
+      kkKecamatan: user.kkKecamatan,
+      kkKelurahan: user.kkKelurahan,
+      alamatKk: user.alamatKk
+    };
+    await logAudit(rtId, user.kkRegionReviewedBy, 'VERIFY_KK_REGION', `Memverifikasi kategori alamat KK ${user.nama}`, beforeRegion, afterRegion);
+    broadcastEvent('update', { type: 'users', rtId, action: 'kk-region', title: 'Kategori Alamat KK Diperbarui', message: `Kategori alamat KK ${user.nama} diperbarui oleh ${user.kkRegionReviewedBy}.`, updaterName: user.kkRegionReviewedBy, time: new Date().toISOString() });
+
+    return res.json({
+      success: true,
+      message: 'Kategori wilayah KK berhasil disimpan.',
+      user: {
+        id: user.id,
+        nama: user.nama,
+        kkCategory: user.kkCategory,
+        wilayahKk: user.wilayahKk,
+        kkKecamatan: user.kkKecamatan,
+        kkKelurahan: user.kkKelurahan,
+        kkKabupatenKota: user.kkKabupatenKota,
+        kkProvinsi: user.kkProvinsi,
+        alamatKk: user.alamatKk,
+        kkVerifiedByAdmin: user.kkVerifiedByAdmin,
+        kkScanStatus: user.kkScanStatus
+      }
+    });
+  } catch (error: any) {
+    console.error('[KK Region Manual Edit] Gagal menyimpan koreksi:', error?.message || error);
+    return res.status(500).json({ error: 'Gagal menyimpan kategori alamat KK. Periksa Runtime Logs Vercel.' });
   }
 });
 
