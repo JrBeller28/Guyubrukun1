@@ -329,14 +329,36 @@ async function authMiddleware(req: express.Request, res: express.Response, next:
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as any;
       
-      // If token contains sessionId, verify that session is not revoked in MongoDB
-      if (decoded.sessionId) {
-        await connectDB();
-        const activeSession = await SessionModel.findOne({ sessionId: decoded.sessionId, isRevoked: false });
-        if (!activeSession) {
-          res.clearCookie('guyub_session');
-          return res.status(401).json({ error: "Sesi telah berakhir atau dicabut. Silakan login kembali." });
-        }
+      // Token harus terikat ke sesi server yang persisten; token lama tanpa sessionId tidak diterima.
+      const decodedUserId = String(decoded.userId || decoded.id || '');
+      if (!decoded.sessionId || !decodedUserId) {
+        res.clearCookie('guyub_session', { path: '/' });
+        return res.status(401).json({
+          code: 'SESSION_REQUIRED',
+          error: 'Sesi lama tidak lagi berlaku. Silakan login kembali.'
+        });
+      }
+
+      await connectDB();
+      const activeSession = await SessionModel.findOne({
+        sessionId: decoded.sessionId,
+        userId: decodedUserId,
+        isRevoked: false,
+        expiresAt: { $gt: new Date() }
+      }).lean();
+      const sessionOwner = await UserModel.findOne(
+        { id: decodedUserId, rtId: decoded.rtId },
+        { activeSessionId: 1 }
+      ).lean();
+      const pointsToAnotherSession = Boolean(
+        sessionOwner?.activeSessionId && sessionOwner.activeSessionId !== decoded.sessionId
+      );
+      if (!activeSession || !sessionOwner || pointsToAnotherSession) {
+        res.clearCookie('guyub_session', { path: '/' });
+        return res.status(401).json({
+          code: 'SESSION_REVOKED',
+          error: 'Sesi akun ini sudah tidak aktif karena akun digunakan untuk login di perangkat lain. Silakan login kembali.'
+        });
       }
 
       (req as any).user = decoded;
@@ -400,6 +422,7 @@ const UserSchema = new mongoose.Schema({
   dokumenKtp: { type: mongoose.Schema.Types.Mixed, select: false },
   hasChangedUsername: { type: Boolean, default: false },
   usernameChangedAt: { type: Date },
+  activeSessionId: { type: String, default: '', select: false },
 }, { timestamps: true, strict: false });
 if (mongoose.models.User) {
   delete mongoose.models.User;
@@ -2064,12 +2087,14 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
       await user.save();
     }
 
-    if (!process.env.VERCEL) {
-      if (activeSessions.has(user.id) && Date.now() - activeSessions.get(user.id)! < 10000) {
-        return res.status(409).json({ error: "User sedang aktif digunakan pada perangkat lain" });
-      }
-      activeSessions.set(user.id, Date.now());
-    }
+    // SINGLE ACTIVE SESSION POLICY:
+    // Login baru mengakhiri semua sesi lama akun ini di semua environment, termasuk Vercel.
+    // Perangkat lama akan menerima HTTP 401 pada permintaan API berikutnya lalu diarahkan ke layar login.
+    await SessionModel.updateMany(
+      { userId: user.id, isRevoked: { $ne: true } },
+      { $set: { isRevoked: true } }
+    );
+    activeSessions.set(user.id, Date.now());
 
     // Check Tenant Subscription status
     const tenant = await TenantModel.findOne({ rtId: user.rtId });
@@ -2088,6 +2113,12 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
       expiresAt: sessionExpiresAt,
       isRevoked: false
     });
+    // Penunjuk ini membuat hanya satu sessionId terbaru yang dapat memakai akun,
+    // termasuk jika dua permintaan login datang hampir bersamaan.
+    await UserModel.updateOne(
+      { id: user.id, rtId: user.rtId },
+      { $set: { activeSessionId: sessionId } }
+    );
 
     // 2. JWT token payload strictly uses userId, rtId, role, and sessionId
     const token = jwt.sign(
@@ -2116,6 +2147,7 @@ async function handleLogin(req: express.Request, res: express.Response, next: ex
 
     const userJson = user.toObject();
     delete userJson.password; // Never expose password hash
+    delete userJson.activeSessionId; // Internal pointer for one-device session enforcement
     delete userJson.dokumenKk; // Never expose large private document in general login
     delete userJson.dokumenKtp;
     userJson.token = token;
@@ -2166,6 +2198,12 @@ app.post(["/api/logout", "/api/auth/logout"], async (req, res) => {
     if (sessionId) {
       await connectDB();
       await SessionModel.updateOne({ sessionId }, { $set: { isRevoked: true } });
+      if (userId) {
+        await UserModel.updateOne(
+          { id: String(userId), activeSessionId: String(sessionId) },
+          { $set: { activeSessionId: '' } }
+        );
+      }
     }
 
     if (userId) {
@@ -2406,12 +2444,15 @@ app.put("/api/profile", async (req, res) => {
       time: new Date().toISOString()
     });
     
+    const currentSessionId = String(userAuth?.sessionId || '');
     const token = jwt.sign(
-      { id: updatedUser.id, username: updatedUser.username, role: updatedUser.role, nama: updatedUser.nama, rtId: updatedUser.rtId },
+      { id: updatedUser.id, userId: updatedUser.id, sessionId: currentSessionId, username: updatedUser.username, role: updatedUser.role, nama: updatedUser.nama, rtId: updatedUser.rtId },
       JWT_SECRET,
-      { expiresIn: "365d" }
+      { expiresIn: "30d" }
     );
     const userJson = updatedUser.toObject();
+    delete userJson.activeSessionId;
+    userJson.sessionId = currentSessionId;
     userJson.token = token;
 
     res.json({ message: "Profile updated successfully", user: userJson, token });
@@ -2484,14 +2525,17 @@ app.post("/api/change-username", async (req, res) => {
 
     const savedUser = await user.save();
 
-    // Create fresh JWT token
+    // Buat JWT baru, tetapi pertahankan sesi server yang saat ini aktif.
+    const currentSessionId = String(userAuth?.sessionId || '');
     const token = jwt.sign(
-      { id: savedUser.id, username: savedUser.username, role: savedUser.role, nama: savedUser.nama, rtId: savedUser.rtId },
+      { id: savedUser.id, userId: savedUser.id, sessionId: currentSessionId, username: savedUser.username, role: savedUser.role, nama: savedUser.nama, rtId: savedUser.rtId },
       JWT_SECRET,
-      { expiresIn: "365d" }
+      { expiresIn: "30d" }
     );
 
     const userObj = savedUser.toObject();
+    delete userObj.activeSessionId;
+    userObj.sessionId = currentSessionId;
     userObj.token = token;
 
     await logAudit(user.rtId || rtId, user.nama, "USERNAME_UPDATE", `Mengubah username dari @${oldUsername} menjadi @${cleanUsername}`, { username: oldUsername }, { username: cleanUsername });
@@ -2816,12 +2860,30 @@ app.put('/api/warga/:id/kategori-kk', enforceRoles(['admin']), async (req, res) 
       kkCategory: user.kkCategory || '',
       kkKecamatan: user.kkKecamatan || '',
       kkKelurahan: user.kkKelurahan || '',
+      kkKabupatenKota: user.kkKabupatenKota || '',
+      kkProvinsi: user.kkProvinsi || '',
       alamatKk: user.alamatKk || ''
     };
+    const submittedKabupatenKota = String(req.body?.kkKabupatenKota ?? '').trim();
+    const submittedProvinsi = String(req.body?.kkProvinsi ?? '').trim();
+    const defaultKabupatenKota = category === 'Kabupaten Tangerang'
+      ? 'Kabupaten Tangerang'
+      : category === 'Kota Tangerang'
+        ? 'Kota Tangerang'
+        : '';
+    const nextKabupatenKota = defaultKabupatenKota || submittedKabupatenKota;
+    const nextProvinsi = defaultKabupatenKota ? 'Banten' : submittedProvinsi;
+
+    if (category === 'Luar Kota Tangerang' && !nextKabupatenKota) {
+      return res.status(400).json({ error: 'Untuk kategori Luar Kota Tangerang, isi juga nama Kabupaten/Kota asal KK agar domisili tersimpan dengan benar.' });
+    }
+
     user.kkCategory = category;
     user.wilayahKk = category;
     user.kkKecamatan = String(req.body?.kkKecamatan ?? user.kkKecamatan ?? '').trim();
     user.kkKelurahan = String(req.body?.kkKelurahan ?? user.kkKelurahan ?? '').trim();
+    user.kkKabupatenKota = nextKabupatenKota;
+    user.kkProvinsi = nextProvinsi;
     user.alamatKk = String(req.body?.alamatKk ?? user.alamatKk ?? '').trim();
     user.kkVerifiedByAdmin = true;
     user.kkScanStatus = 'manual';
@@ -2835,6 +2897,8 @@ app.put('/api/warga/:id/kategori-kk', enforceRoles(['admin']), async (req, res) 
       kkCategory: user.kkCategory,
       kkKecamatan: user.kkKecamatan,
       kkKelurahan: user.kkKelurahan,
+      kkKabupatenKota: user.kkKabupatenKota,
+      kkProvinsi: user.kkProvinsi,
       alamatKk: user.alamatKk
     };
     await logAudit(rtId, user.kkRegionReviewedBy, 'VERIFY_KK_REGION', `Memverifikasi kategori alamat KK ${user.nama}`, beforeRegion, afterRegion);
