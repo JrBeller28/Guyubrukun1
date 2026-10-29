@@ -190,6 +190,34 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Pr
         } catch {}
       }
 
+      // Sesi lama akan ditolak server setelah akun login di perangkat lain.
+      // Bersihkan kredensial lokal dan beri tahu App agar kembali ke layar login.
+      const authUrl = /\/api\/(?:login|register|auth\/login|auth\/register|logout|auth\/logout|health)(?:[/?]|$)/i.test(url);
+      if (res.status === 401 && !authUrl && typeof window !== 'undefined' && localStorage.getItem('auth_user')) {
+        const message = 'Sesi Anda telah berakhir karena akun ini digunakan untuk login di perangkat lain. Silakan login kembali.';
+        const requestToken = modifiedInit.headers instanceof Headers
+          ? String(modifiedInit.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
+          : '';
+        let storedToken = '';
+        try {
+          const storedUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+          storedToken = String(storedUser?.token || localStorage.getItem('auth_token') || localStorage.getItem('token') || '');
+        } catch {}
+        // Pada tab satu-origin, localStorage dipakai bersama. Jangan hapus token lebih baru
+        // milik sesi login yang baru hanya karena tab lama menerima 401.
+        const newerSessionStored = Boolean(requestToken && storedToken && requestToken !== storedToken);
+        if (!newerSessionStored) {
+          localStorage.removeItem('auth_user');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('token');
+        }
+        cache.clear();
+        inflight.clear();
+        window.dispatchEvent(new CustomEvent('auth_session_invalidated', {
+          detail: { message, preserveStoredSession: newerSessionStored }
+        }));
+      }
+
       return attachSafeJsonParser(res, url);
     })
     .finally(() => {
