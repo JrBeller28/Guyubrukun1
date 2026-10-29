@@ -274,8 +274,25 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
   const [regionCategoryInput, setRegionCategoryInput] = useState<'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang'>('Kabupaten Tangerang');
   const [regionKecamatanInput, setRegionKecamatanInput] = useState('');
   const [regionKelurahanInput, setRegionKelurahanInput] = useState('');
+  const [regionKabupatenKotaInput, setRegionKabupatenKotaInput] = useState('');
+  const [regionProvinsiInput, setRegionProvinsiInput] = useState('');
   const [regionAlamatInput, setRegionAlamatInput] = useState('');
   const [savingRegion, setSavingRegion] = useState(false);
+
+  const applyDokumenRegionCategory = (category: 'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang') => {
+    setRegionCategoryInput(category);
+    if (category === 'Kabupaten Tangerang') {
+      setRegionKabupatenKotaInput('Kabupaten Tangerang');
+      setRegionProvinsiInput('Banten');
+    } else if (category === 'Kota Tangerang') {
+      setRegionKabupatenKotaInput('Kota Tangerang');
+      setRegionProvinsiInput('Banten');
+    } else {
+      // Pengguna harus mengisi domisili luar wilayah secara spesifik, bukan memakai nilai lama.
+      setRegionKabupatenKotaInput('');
+      setRegionProvinsiInput('');
+    }
+  };
 
   // Batch Scanner Identifikasi KK
   const [isBatchScanningKk, setIsBatchScanningKk] = useState(false);
@@ -436,6 +453,8 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
           kkCategory: regionCategoryInput,
           kkKecamatan: regionKecamatanInput.trim(),
           kkKelurahan: regionKelurahanInput.trim(),
+          kkKabupatenKota: regionKabupatenKotaInput.trim(),
+          kkProvinsi: regionProvinsiInput.trim(),
           alamatKk: regionAlamatInput.trim()
         })
       });
@@ -447,6 +466,8 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
           kkCategory: regionCategoryInput,
           kkKecamatan: regionKecamatanInput.trim(),
           kkKelurahan: regionKelurahanInput.trim(),
+          kkKabupatenKota: regionKabupatenKotaInput.trim(),
+          kkProvinsi: regionProvinsiInput.trim(),
           alamatKk: regionAlamatInput.trim(),
           kkVerifiedByAdmin: true
         } : u)));
@@ -457,6 +478,8 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
             kkCategory: regionCategoryInput,
             kkKecamatan: regionKecamatanInput.trim(),
             kkKelurahan: regionKelurahanInput.trim(),
+            kkKabupatenKota: regionKabupatenKotaInput.trim(),
+            kkProvinsi: regionProvinsiInput.trim(),
             alamatKk: regionAlamatInput.trim(),
             kkVerifiedByAdmin: true
           }));
@@ -1459,15 +1482,18 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                                 {hasKk && (() => {
                                   const reg = resolveWargaKkRegion(person);
                                   return (
+                                    <div className="flex flex-col items-start gap-1">
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         if (isKetuaRT) {
                                           e.stopPropagation();
                                           setEditingKkRegionTarget(person);
-                                          setRegionCategoryInput(reg.category);
+                                          setRegionCategoryInput(reg.category === 'Belum Teridentifikasi' ? 'Kabupaten Tangerang' : reg.category as any);
                                           setRegionKecamatanInput(person.kkKecamatan || reg.kecamatan || '');
                                           setRegionKelurahanInput(person.kkKelurahan || reg.kelurahan || '');
+                                          setRegionKabupatenKotaInput(person.kkKabupatenKota || reg.kabupatenKota || (reg.category === 'Kabupaten Tangerang' ? 'Kabupaten Tangerang' : reg.category === 'Kota Tangerang' ? 'Kota Tangerang' : ''));
+                                          setRegionProvinsiInput(person.kkProvinsi || reg.provinsi || ((reg.category === 'Kabupaten Tangerang' || reg.category === 'Kota Tangerang') ? 'Banten' : ''));
                                           setRegionAlamatInput(person.alamatKk || reg.alamat || '');
                                         }
                                       }}
@@ -1483,6 +1509,12 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                                       )}
                                       {isKetuaRT && <span className="text-[9px] opacity-70">✏️</span>}
                                     </button>
+                                    {(person.kkKabupatenKota || person.kkProvinsi) && (
+                                      <span className="block max-w-full text-[10px] text-slate-600 font-medium mt-1">
+                                        Domisili KK: {[person.kkKabupatenKota, person.kkProvinsi].filter(Boolean).join(', ')}
+                                      </span>
+                                    )}
+                                    </div>
                                   );
                                 })()}
                                 <span
@@ -2197,6 +2229,11 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                               Alamat Asal: {selectedMemberDetail.alamatKk || reg.alamat}
                             </p>
                           )}
+                          {(selectedMemberDetail.kkKabupatenKota || selectedMemberDetail.kkProvinsi) && (
+                            <p className="text-[10px] font-semibold opacity-90 truncate mt-0.5">
+                              Domisili: {[selectedMemberDetail.kkKabupatenKota, selectedMemberDetail.kkProvinsi].filter(Boolean).join(', ')}
+                            </p>
+                          )}
                         </div>
                       </div>
                       {isKetuaRT && (
@@ -2204,7 +2241,11 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                           type="button"
                           onClick={() => {
                             setEditingKkRegionTarget(selectedMemberDetail);
-                            setRegionCategoryInput(reg.category);
+                            setRegionCategoryInput(reg.category === 'Belum Teridentifikasi' ? 'Kabupaten Tangerang' : reg.category as any);
+                            setRegionKabupatenKotaInput(selectedMemberDetail.kkKabupatenKota || reg.kabupatenKota || (reg.category === 'Kabupaten Tangerang' ? 'Kabupaten Tangerang' : reg.category === 'Kota Tangerang' ? 'Kota Tangerang' : ''));
+                            setRegionProvinsiInput(selectedMemberDetail.kkProvinsi || reg.provinsi || ((reg.category === 'Kabupaten Tangerang' || reg.category === 'Kota Tangerang') ? 'Banten' : ''));
+                            setRegionKecamatanInput(selectedMemberDetail.kkKecamatan || reg.kecamatan || '');
+                            setRegionKelurahanInput(selectedMemberDetail.kkKelurahan || reg.kelurahan || '');
                             setRegionAlamatInput(selectedMemberDetail.alamatKk || reg.alamat || '');
                           }}
                           className="text-[10px] font-extrabold px-2.5 py-1.5 bg-white rounded-xl border shadow-xs hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
@@ -2410,7 +2451,7 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                         name="dokumenKkRegion"
                         value={item.id}
                         checked={regionCategoryInput === item.id}
-                        onChange={(e) => setRegionCategoryInput(e.target.value as any)}
+                        onChange={(e) => applyDokumenRegionCategory(e.target.value as any)}
                         className="mt-1 accent-teal-600"
                       />
                       <div className="flex-1 min-w-0">
@@ -2440,9 +2481,9 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                       setRegionKecamatanInput(val);
                       const upper = val.toUpperCase();
                       if (KECAMATAN_KAB_TANGERANG.some(k => upper.includes(k))) {
-                        setRegionCategoryInput('Kabupaten Tangerang');
+                        applyDokumenRegionCategory('Kabupaten Tangerang');
                       } else if (KECAMATAN_KOTA_TANGERANG.some(k => upper.includes(k))) {
-                        setRegionCategoryInput('Kota Tangerang');
+                        applyDokumenRegionCategory('Kota Tangerang');
                       }
                     }}
                     className="w-full text-xs font-medium p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none"
@@ -2461,7 +2502,7 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                       setRegionKelurahanInput(val);
                       const upper = val.toUpperCase();
                       if (KELURAHAN_KAB_TANGERANG.some(k => upper.includes(k))) {
-                        setRegionCategoryInput('Kabupaten Tangerang');
+                        applyDokumenRegionCategory('Kabupaten Tangerang');
                         if (!regionKecamatanInput) setRegionKecamatanInput('Pasar Kemis');
                       }
                     }}
@@ -2490,15 +2531,45 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                       key={chip.label}
                       type="button"
                       onClick={() => {
-                        setRegionCategoryInput(chip.cat as any);
+                        applyDokumenRegionCategory(chip.cat as any);
                         setRegionKecamatanInput(chip.kec);
                         if (chip.kel) setRegionKelurahanInput(chip.kel);
+                        if (chip.cat === 'Luar Kota Tangerang') {
+                          setRegionKabupatenKotaInput(chip.label.startsWith('Tangsel') ? 'Kota Tangerang Selatan' : chip.label.startsWith('Jakarta') ? 'Kota Administrasi Jakarta Barat' : regionKabupatenKotaInput);
+                          setRegionProvinsiInput(chip.label.startsWith('Tangsel') ? 'Banten' : chip.label.startsWith('Jakarta') ? 'DKI Jakarta' : regionProvinsiInput);
+                        }
                       }}
                       className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 transition-colors cursor-pointer"
                     >
                       + {chip.label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Kabupaten / Kota asal KK:</label>
+                  <input
+                    type="text"
+                    placeholder="Kabupaten Tangerang / Jakarta Selatan"
+                    value={regionKabupatenKotaInput}
+                    onChange={(e) => setRegionKabupatenKotaInput(e.target.value)}
+                    readOnly={regionCategoryInput !== 'Luar Kota Tangerang'}
+                    required={regionCategoryInput === 'Luar Kota Tangerang'}
+                    className="w-full text-xs font-medium p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">Provinsi:</label>
+                  <input
+                    type="text"
+                    placeholder="Banten / DKI Jakarta"
+                    value={regionProvinsiInput}
+                    onChange={(e) => setRegionProvinsiInput(e.target.value)}
+                    readOnly={regionCategoryInput !== 'Luar Kota Tangerang'}
+                    className="w-full text-xs font-medium p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none"
+                  />
                 </div>
               </div>
 
