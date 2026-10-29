@@ -250,10 +250,27 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
   const [regionFormCategory, setRegionFormCategory] = useState<Extract<KkRegionCategory, 'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang'> | ''>('');
   const [regionFormKecamatan, setRegionFormKecamatan] = useState('');
   const [regionFormKelurahan, setRegionFormKelurahan] = useState('');
+  const [regionFormKabupatenKota, setRegionFormKabupatenKota] = useState('');
+  const [regionFormProvinsi, setRegionFormProvinsi] = useState('');
   const [regionFormAlamat, setRegionFormAlamat] = useState('');
   const [isSavingKkRegion, setIsSavingKkRegion] = useState(false);
   const [isBatchScanningKk, setIsBatchScanningKk] = useState(false);
   const [kkScanProgress, setKkScanProgress] = useState('');
+
+  const applyRegionFormCategory = (category: Extract<KkRegionCategory, 'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang'>) => {
+    setRegionFormCategory(category);
+    if (category === 'Kabupaten Tangerang') {
+      setRegionFormKabupatenKota('Kabupaten Tangerang');
+      setRegionFormProvinsi('Banten');
+    } else if (category === 'Kota Tangerang') {
+      setRegionFormKabupatenKota('Kota Tangerang');
+      setRegionFormProvinsi('Banten');
+    } else {
+      // Cegah domisili lama (Kabupaten/Kota Tangerang) terbawa ke kategori luar wilayah.
+      setRegionFormKabupatenKota('');
+      setRegionFormProvinsi('');
+    }
+  };
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -720,6 +737,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
           kkCategory: regionFormCategory,
           kkKecamatan: regionFormKecamatan.trim(),
           kkKelurahan: regionFormKelurahan.trim(),
+          kkKabupatenKota: regionFormKabupatenKota.trim(),
+          kkProvinsi: regionFormProvinsi.trim(),
           alamatKk: regionFormAlamat.trim()
         })
       });
@@ -731,6 +750,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
           kkCategory: regionFormCategory,
           kkKecamatan: regionFormKecamatan.trim(),
           kkKelurahan: regionFormKelurahan.trim(),
+          kkKabupatenKota: regionFormKabupatenKota.trim(),
+          kkProvinsi: regionFormProvinsi.trim(),
           alamatKk: regionFormAlamat.trim(),
           kkVerifiedByAdmin: true,
           kkScanStatus: 'manual',
@@ -743,6 +764,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
           kkCategory: regionFormCategory,
           kkKecamatan: regionFormKecamatan.trim(),
           kkKelurahan: regionFormKelurahan.trim(),
+          kkKabupatenKota: regionFormKabupatenKota.trim(),
+          kkProvinsi: regionFormProvinsi.trim(),
           alamatKk: regionFormAlamat.trim(),
           kkVerifiedByAdmin: true,
           kkScanStatus: 'manual',
@@ -2495,6 +2518,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                     setRegionFormAlamat(warga.alamatKk || reg.alamat || '');
                                     setRegionFormKecamatan(warga.kkKecamatan || reg.kecamatan || '');
                                     setRegionFormKelurahan(warga.kkKelurahan || reg.kelurahan || '');
+                                    setRegionFormKabupatenKota(warga.kkKabupatenKota || reg.kabupatenKota || (reg.category === 'Kabupaten Tangerang' ? 'Kabupaten Tangerang' : reg.category === 'Kota Tangerang' ? 'Kota Tangerang' : ''));
+                                    setRegionFormProvinsi(warga.kkProvinsi || reg.provinsi || ((reg.category === 'Kabupaten Tangerang' || reg.category === 'Kota Tangerang') ? 'Banten' : ''));
                                   }}
                                   className="text-[9px] font-extrabold bg-white hover:bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-md transition-colors cursor-pointer shadow-2xs shrink-0"
                                   title="Ubah Kategori Wilayah / Alamat KK"
@@ -2506,7 +2531,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                             <div className="text-[11px] text-slate-700 font-semibold pl-5 leading-snug space-y-0.5">
                               <p>
                                 <span className="text-slate-400 font-normal">Domisili KK: </span>
-                                <span>{warga.alamatKk || reg.label}</span>
+                                <span>{[warga.alamatKk, warga.kkKelurahan ? `Kel. ${warga.kkKelurahan}` : '', warga.kkKecamatan ? `Kec. ${warga.kkKecamatan}` : '', warga.kkKabupatenKota || reg.kabupatenKota || '', warga.kkProvinsi || reg.provinsi || ''].filter(Boolean).join(', ') || reg.label}</span>
                               </p>
                               {(warga.kkKecamatan || reg.kecamatan) && (
                                 <div className="flex flex-wrap items-center gap-1 text-[10px] text-teal-800">
@@ -2762,7 +2787,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                             name="kkRegionCategory"
                             value={item.id}
                             checked={regionFormCategory === item.id}
-                            onChange={(e) => setRegionFormCategory(e.target.value as any)}
+                            onChange={(e) => applyRegionFormCategory(e.target.value as any)}
                             className="mt-1 accent-teal-600"
                           />
                           <div className="flex-1 min-w-0">
@@ -2791,9 +2816,9 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                           setRegionFormKecamatan(val);
                           const upper = val.toUpperCase().trim();
                           if (KECAMATAN_KAB_TANGERANG.some(k => upper.includes(k))) {
-                            setRegionFormCategory('Kabupaten Tangerang');
+                            applyRegionFormCategory('Kabupaten Tangerang');
                           } else if (KECAMATAN_KOTA_TANGERANG.some(k => upper.includes(k))) {
-                            setRegionFormCategory('Kota Tangerang');
+                            applyRegionFormCategory('Kota Tangerang');
                           }
                         }}
                         className="w-full text-xs font-semibold p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none"
@@ -2812,11 +2837,22 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                           setRegionFormKelurahan(val);
                           const upper = val.toUpperCase().trim();
                           if (KELURAHAN_KAB_TANGERANG.some(k => upper.includes(k))) {
-                            setRegionFormCategory('Kabupaten Tangerang');
+                            applyRegionFormCategory('Kabupaten Tangerang');
                           }
                         }}
                         className="w-full text-xs font-semibold p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none"
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Kabupaten / Kota asal KK:</label>
+                      <input type="text" placeholder="Kabupaten Tangerang / Jakarta Selatan" value={regionFormKabupatenKota} onChange={e => setRegionFormKabupatenKota(e.target.value)} readOnly={regionFormCategory !== 'Luar Kota Tangerang'} required={regionFormCategory === 'Luar Kota Tangerang'} className="w-full text-xs font-semibold p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Provinsi:</label>
+                      <input type="text" placeholder="Banten / DKI Jakarta" value={regionFormProvinsi} onChange={e => setRegionFormProvinsi(e.target.value)} readOnly={regionFormCategory !== 'Luar Kota Tangerang'} className="w-full text-xs font-semibold p-2.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-teal-500 rounded-xl outline-none" />
                     </div>
                   </div>
 
@@ -2832,14 +2868,18 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                           onClick={() => {
                             setRegionFormKecamatan(quickKec.replace(' (Tangsel)', ''));
                             if (['Pasar Kemis', 'Cikupa', 'Balaraja', 'Rajeg'].includes(quickKec)) {
-                              setRegionFormCategory('Kabupaten Tangerang');
+                              applyRegionFormCategory('Kabupaten Tangerang');
                               if (quickKec === 'Pasar Kemis' && !regionFormKelurahan) {
                                 setRegionFormKelurahan('Kutabumi');
                               }
                             } else if (['Karawaci', 'Periuk', 'Ciledug'].includes(quickKec)) {
-                              setRegionFormCategory('Kota Tangerang');
+                              applyRegionFormCategory('Kota Tangerang');
                             } else {
-                              setRegionFormCategory('Luar Kota Tangerang');
+                              applyRegionFormCategory('Luar Kota Tangerang');
+                              if (quickKec === 'Ciputat (Tangsel)') {
+                                setRegionFormKabupatenKota('Kota Tangerang Selatan');
+                                setRegionFormProvinsi('Banten');
+                              }
                             }
                           }}
                           className="text-[10px] bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-700 px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer"
@@ -3924,6 +3964,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                       setRegionFormAlamat(warga.alamatKk || reg.alamat || '');
                                       setRegionFormKecamatan(warga.kkKecamatan || reg.kecamatan || '');
                                       setRegionFormKelurahan(warga.kkKelurahan || reg.kelurahan || '');
+                                      setRegionFormKabupatenKota(warga.kkKabupatenKota || reg.kabupatenKota || (reg.category === 'Kabupaten Tangerang' ? 'Kabupaten Tangerang' : reg.category === 'Kota Tangerang' ? 'Kota Tangerang' : ''));
+                                      setRegionFormProvinsi(warga.kkProvinsi || reg.provinsi || ((reg.category === 'Kabupaten Tangerang' || reg.category === 'Kota Tangerang') ? 'Banten' : ''));
                                     }}
                                     className="text-[10px] font-extrabold px-2.5 py-1.5 bg-white rounded-xl border shadow-xs hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
                                   >
