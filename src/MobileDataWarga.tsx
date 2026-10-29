@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   resolveWargaKkRegion,
+  type KkRegionCategory,
   KECAMATAN_KAB_TANGERANG,
   KECAMATAN_KOTA_TANGERANG,
   KELURAHAN_KAB_TANGERANG
@@ -242,16 +243,17 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
   const [allWargaFullData, setAllWargaFullData] = useState<any[]>(cachedAllWargaFull || []);
   const [allWargaKkData, setAllWargaKkData] = useState<any[]>([]);
   const [loadingKkMenu, setLoadingKkMenu] = useState(false);
-  const [kkFilterStatus, setKkFilterStatus] = useState<'terupload' | 'kab_tangerang' | 'kota_tangerang' | 'luar_tangerang' | 'semua' | 'belum'>('terupload');
+  const [kkFilterStatus, setKkFilterStatus] = useState<'terupload' | 'kab_tangerang' | 'kota_tangerang' | 'luar_tangerang' | 'perlu_review' | 'semua' | 'belum'>('terupload');
   const [kkSearchQuery, setKkSearchQuery] = useState('');
   const [kkFilterBlok, setKkFilterBlok] = useState('');
   const [editingKkRegionWarga, setEditingKkRegionWarga] = useState<any | null>(null);
-  const [regionFormCategory, setRegionFormCategory] = useState<'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang'>('Kabupaten Tangerang');
+  const [regionFormCategory, setRegionFormCategory] = useState<Extract<KkRegionCategory, 'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang'> | ''>('');
   const [regionFormKecamatan, setRegionFormKecamatan] = useState('');
   const [regionFormKelurahan, setRegionFormKelurahan] = useState('');
   const [regionFormAlamat, setRegionFormAlamat] = useState('');
   const [isSavingKkRegion, setIsSavingKkRegion] = useState(false);
   const [isBatchScanningKk, setIsBatchScanningKk] = useState(false);
+  const [kkScanProgress, setKkScanProgress] = useState('');
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -705,6 +707,10 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
 
   const handleSaveKkRegion = async () => {
     if (!editingKkRegionWarga) return;
+    if (!regionFormCategory) {
+      showStatusBanner('Pilih kategori wilayah KK sebelum menyimpan.', true);
+      return;
+    }
     setIsSavingKkRegion(true);
     try {
       const res = await apiFetch(`/api/warga/${editingKkRegionWarga.id}/kategori-kk`, {
@@ -726,7 +732,10 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
           kkKecamatan: regionFormKecamatan.trim(),
           kkKelurahan: regionFormKelurahan.trim(),
           alamatKk: regionFormAlamat.trim(),
-          kkVerifiedByAdmin: true
+          kkVerifiedByAdmin: true,
+          kkScanStatus: 'manual',
+          kkScanConfidence: 'high',
+          kkScanSource: 'manual'
         } : w));
         setWargaData(prev => prev.map(w => w.id === editingKkRegionWarga.id ? {
           ...w,
@@ -735,7 +744,10 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
           kkKecamatan: regionFormKecamatan.trim(),
           kkKelurahan: regionFormKelurahan.trim(),
           alamatKk: regionFormAlamat.trim(),
-          kkVerifiedByAdmin: true
+          kkVerifiedByAdmin: true,
+          kkScanStatus: 'manual',
+          kkScanConfidence: 'high',
+          kkScanSource: 'manual'
         } : w));
         setEditingKkRegionWarga(null);
         window.dispatchEvent(new CustomEvent('app_data_update', { detail: 'users' }));
@@ -753,24 +765,57 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
   const handleBatchScanAllKk = async () => {
     if (isBatchScanningKk) return;
     setIsBatchScanningKk(true);
+    setKkScanProgress('Menyiapkan pemindaian...');
     try {
-      const res = await apiFetch('/api/warga/identifikasi-semua-kk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showStatusBanner(`Identifikasi Berhasil! Total: ${data.totalScanned} KK (${data.categories['Kabupaten Tangerang']} Kab. Tangerang, ${data.categories['Kota Tangerang']} Kota Tangerang, ${data.categories['Luar Kota Tangerang']} Luar Tangerang)`);
-        await fetchAllKkWargaForKetuaRT();
-        await fetchWarga();
-        window.dispatchEvent(new CustomEvent('app_data_update', { detail: 'users' }));
-      } else {
-        showStatusBanner(data.error || 'Gagal memindai dan mengidentifikasi KK', true);
+      let offset = 0;
+      let totalUploaded = 0;
+      let scanned = 0;
+      let needsReview = 0;
+      let ocrFailures = 0;
+      let done = false;
+      const categories: Record<'Kabupaten Tangerang' | 'Kota Tangerang' | 'Luar Kota Tangerang', number> = {
+        'Kabupaten Tangerang': 0,
+        'Kota Tangerang': 0,
+        'Luar Kota Tangerang': 0
+      };
+
+      // Jalankan dalam batch kecil agar OCR dokumen tidak melampaui batas waktu fungsi Vercel.
+      while (!done) {
+        const res = await apiFetch('/api/warga/identifikasi-semua-kk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offset, limit: 2 })
+        });
+        const data = await res.json().catch(() => ({} as any));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Server gagal memindai dokumen KK (HTTP ${res.status}).`);
+        }
+
+        totalUploaded = Number(data.totalUploaded || 0);
+        scanned += Number(data.batchScanned || 0);
+        needsReview += Number(data.needsReview || 0);
+        ocrFailures += Number(data.ocrFailures || 0);
+        categories['Kabupaten Tangerang'] += Number(data.categories?.['Kabupaten Tangerang'] || 0);
+        categories['Kota Tangerang'] += Number(data.categories?.['Kota Tangerang'] || 0);
+        categories['Luar Kota Tangerang'] += Number(data.categories?.['Luar Kota Tangerang'] || 0);
+        offset = Number(data.nextOffset ?? (offset + Number(data.batchScanned || 0)));
+        done = Boolean(data.done);
+        setKkScanProgress(totalUploaded > 0 ? `Memindai ${Math.min(scanned, totalUploaded)} dari ${totalUploaded} KK...` : 'Memeriksa data KK...');
+
+        if (!done && Number(data.batchScanned || 0) === 0) {
+          throw new Error('Pemindaian berhenti sebelum seluruh dokumen diproses. Silakan coba kembali.');
+        }
       }
+
+      showStatusBanner(`Scan selesai: ${scanned} KK. Kab. Tangerang ${categories['Kabupaten Tangerang']}, Kota Tangerang ${categories['Kota Tangerang']}, Luar Kota Tangerang ${categories['Luar Kota Tangerang']}, perlu ditinjau ${needsReview}${ocrFailures ? ` (OCR gagal pada ${ocrFailures} dokumen)` : ''}.`);
+      await fetchAllKkWargaForKetuaRT();
+      await fetchWarga();
+      window.dispatchEvent(new CustomEvent('app_data_update', { detail: 'users' }));
     } catch (err: any) {
-      showStatusBanner(err?.message || 'Terjadi kesalahan jaringan saat memindai KK', true);
+      showStatusBanner(err?.message || 'Terjadi kesalahan saat memindai KK. Periksa koneksi dan Runtime Logs Vercel.', true);
     } finally {
       setIsBatchScanningKk(false);
+      setKkScanProgress('');
     }
   };
 
@@ -1652,12 +1697,14 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
     let kabTangerang = 0;
     let kotaTangerang = 0;
     let luarKota = 0;
+    let perluReview = 0;
 
     uploaded.forEach(w => {
       const reg = resolveWargaKkRegion(w);
       if (reg.category === 'Kabupaten Tangerang') kabTangerang++;
       else if (reg.category === 'Kota Tangerang') kotaTangerang++;
-      else luarKota++;
+      else if (reg.category === 'Luar Kota Tangerang') luarKota++;
+      else perluReview++;
     });
 
     return {
@@ -1666,7 +1713,8 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
       notUploadedCount: notUploaded.length,
       kabTangerang,
       kotaTangerang,
-      luarKota
+      luarKota,
+      perluReview
     };
   }, [allWargaKkData]);
 
@@ -1689,6 +1737,10 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
         if (kkFilterStatus === 'luar_tangerang') {
           if (!hasKk) return false;
           if (resolveWargaKkRegion(w).category !== 'Luar Kota Tangerang') return false;
+        }
+        if (kkFilterStatus === 'perlu_review') {
+          if (!hasKk) return false;
+          if (resolveWargaKkRegion(w).category !== 'Belum Teridentifikasi') return false;
         }
 
         const q = kkSearchQuery.toLowerCase().trim();
@@ -2101,7 +2153,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                   title="Pindai seluruh KK yang terunggah dan kelompokkan ke Kab. Tangerang, Kota Tangerang, atau Luar Kota Tangerang"
                 >
                   <icons.sparkles className="w-4 h-4 text-teal-600" />
-                  <span>{isBatchScanningKk ? 'Memindai Semua KK...' : 'Scan & Identifikasi Semua KK'}</span>
+                  <span>{isBatchScanningKk ? (kkScanProgress || 'Memindai Semua KK...') : 'Scan & Identifikasi Semua KK'}</span>
                 </button>
                 <button
                   type="button"
@@ -2123,7 +2175,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                     📍 Identifikasi Alamat Asal KK Warga
                   </span>
                   <span className="text-[10px] font-extrabold bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full">
-                    {kkStats.uploadedCount} KK Terverifikasi
+                    {kkStats.uploadedCount} KK Terupload
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -2133,7 +2185,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
             </div>
 
             {/* 3 Kategori Wilayah KK Warga */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               {/* Kategori 1: Kabupaten Tangerang */}
               <button
                 type="button"
@@ -2211,6 +2263,30 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1">DKI Jakarta, Jawa Barat, Jawa Tengah, dll.</p>
               </button>
+
+            <button
+              type="button"
+              onClick={() => setKkFilterStatus('perlu_review')}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative overflow-hidden ${
+                kkFilterStatus === 'perlu_review'
+                  ? 'bg-slate-100 border-slate-500 ring-2 ring-slate-500/20 shadow-md'
+                  : 'bg-slate-50/70 border-slate-200/80 hover:border-slate-400 hover:bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-slate-700 flex items-center gap-1.5 uppercase tracking-wider">
+                  <span>🔎</span><span>Perlu Ditinjau RT</span>
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                  {kkStats.uploadedCount > 0 ? Math.round((kkStats.perluReview / kkStats.uploadedCount) * 100) : 0}%
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <p className="text-2xl font-black text-slate-800">{kkStats.perluReview}</p>
+                <span className="text-xs font-bold text-slate-600">Kartu Keluarga</span>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">Alamat belum cukup terbaca, perlu koreksi manual.</p>
+            </button>
             </div>
 
             {/* Quick Status Bar */}
@@ -2273,6 +2349,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                 { id: 'kab_tangerang', label: `🏛️ Kab. Tangerang (${kkStats.kabTangerang})` },
                 { id: 'kota_tangerang', label: `🏢 Kota Tangerang (${kkStats.kotaTangerang})` },
                 { id: 'luar_tangerang', label: `🌍 Luar Kota Tangerang (${kkStats.luarKota})` },
+                { id: 'perlu_review', label: `🔎 Perlu Ditinjau RT (${kkStats.perluReview})` },
                 { id: 'belum', label: `✕ Belum Upload (${kkStats.notUploadedCount})` },
                 { id: 'semua', label: `Semua Warga (${kkStats.total})` }
               ].map(tab => (
@@ -2408,13 +2485,13 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                   {reg.label}
                                 </span>
                               </div>
-                              {canEditFamily && (
+                              {isKetuaRT && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setEditingKkRegionWarga(warga);
-                                    setRegionFormCategory(reg.category);
+                                    setRegionFormCategory(reg.category === 'Belum Teridentifikasi' ? '' : reg.category as any);
                                     setRegionFormAlamat(warga.alamatKk || reg.alamat || '');
                                     setRegionFormKecamatan(warga.kkKecamatan || reg.kecamatan || '');
                                     setRegionFormKelurahan(warga.kkKelurahan || reg.kelurahan || '');
@@ -2617,7 +2694,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4"
+                className="fixed inset-0 z-[9999] bg-slate-900/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain"
                 onClick={() => setEditingKkRegionWarga(null)}
               >
                 <motion.div
@@ -2625,9 +2702,9 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.95, opacity: 0 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-md p-6 space-y-4"
+                  className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 w-full max-w-md max-h-[calc(100dvh-0.5rem)] sm:max-h-[90vh] overflow-hidden flex flex-col p-0"
                 >
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-5 pt-5 shrink-0">
                     <div>
                       <h3 className="font-extrabold text-slate-800 text-base">Identifikasi Wilayah KK</h3>
                       <p className="text-xs text-slate-500 font-medium">
@@ -2643,9 +2720,10 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                     </button>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-2">
-                      Kategori Asal Alamat KK Dokumen:
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-2">
+                        Kategori Asal Alamat KK Dokumen:
                     </label>
                     <div className="space-y-2">
                       {[
@@ -2788,7 +2866,9 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                     </p>
                   </div>
 
-                  <div className="flex gap-2 pt-2">
+                  </div>
+
+                  <div className="shrink-0 border-t border-slate-100 bg-white px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
                     <button
                       type="button"
                       onClick={() => setEditingKkRegionWarga(null)}
@@ -2798,7 +2878,7 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                     </button>
                     <button
                       type="button"
-                      disabled={isSavingKkRegion}
+                      disabled={isSavingKkRegion || !regionFormCategory}
                       onClick={handleSaveKkRegion}
                       className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-md disabled:opacity-50 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                     >
@@ -3834,14 +3914,16 @@ export const MobileDataWarga = ({ onBack, currentUser }: { onBack: () => void, c
                                     )}
                                   </div>
                                 </div>
-                                {isPrivilegedKkViewer && (
+                                {isKetuaRT && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setEditingKkRegionWarga(warga);
-                                      setRegionFormCategory(reg.category);
+                                      setRegionFormCategory(reg.category === 'Belum Teridentifikasi' ? '' : reg.category as any);
                                       setRegionFormAlamat(warga.alamatKk || reg.alamat || '');
+                                      setRegionFormKecamatan(warga.kkKecamatan || reg.kecamatan || '');
+                                      setRegionFormKelurahan(warga.kkKelurahan || reg.kelurahan || '');
                                     }}
                                     className="text-[10px] font-extrabold px-2.5 py-1.5 bg-white rounded-xl border shadow-xs hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
                                   >
