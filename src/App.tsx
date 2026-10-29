@@ -5464,6 +5464,7 @@ export default function App() {
   });
   const [selectedRt, setSelectedRt] = useState<string>(() => localStorage.getItem('selected_rt') || '');
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
+  const [authNotice, setAuthNotice] = useState('');
   const [showSplash, setShowSplash] = useState(false);
   const [showAuthFlow, setShowAuthFlow] = useState(false);
   const [isMobile, setIsMobile] = useState(() => {
@@ -5481,6 +5482,24 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    const handleSessionInvalidated = (event: Event) => {
+      const customEvent = event as CustomEvent<{ message?: string }>;
+      setAuthNotice(customEvent.detail?.message || 'Sesi Anda sudah tidak aktif. Silakan login kembali.');
+      setUser(null);
+      setAuthView('login');
+      setShowAuthFlow(true);
+      setShowSplash(false);
+      if (!customEvent.detail?.preserveStoredSession) {
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('token');
+      }
+    };
+    window.addEventListener('auth_session_invalidated', handleSessionInvalidated as EventListener);
+    return () => window.removeEventListener('auth_session_invalidated', handleSessionInvalidated as EventListener);
+  }, []);
+
   const handleUpdateUser = (updatedData: any) => {
     const newUser = { ...user, ...updatedData };
     setUser(newUser);
@@ -5488,6 +5507,7 @@ export default function App() {
   };
   
   const handleLogin = (userData: any) => {
+    setAuthNotice('');
     setUser(userData);
     localStorage.setItem('auth_user', JSON.stringify(userData));
     if (userData?.token) {
@@ -5511,10 +5531,10 @@ export default function App() {
     // Initial ping
     apiFetch('/api/ping', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id }) }).catch(() => {});
 
-    // Heartbeat ping every 30 seconds
+    // Heartbeat ping every 15 seconds so revoked sessions are logged out promptly
     const interval = setInterval(() => {
       apiFetch('/api/ping', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id }) }).catch(() => {});
-    }, 30000);
+    }, 15000);
 
     return () => {
       clearInterval(interval);
@@ -5757,6 +5777,9 @@ export default function App() {
     }
     setUser(null);
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('token');
+    setAuthNotice('');
   };
 
   return (
@@ -5866,7 +5889,7 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <Login onLogin={handleLogin} onNavRegister={() => setAuthView('register')} />
+              <Login onLogin={handleLogin} onNavRegister={() => setAuthView('register')} initialNotice={authNotice} />
             </motion.div>
           ) : (
              <motion.div
