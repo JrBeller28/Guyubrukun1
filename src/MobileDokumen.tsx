@@ -2342,7 +2342,7 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4"
+            className="fixed inset-0 z-[9999] bg-slate-900/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain"
             onClick={() => setEditingKkRegionTarget(null)}
           >
             <motion.div
@@ -2350,9 +2350,9 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl shadow-2xl border border-slate-100 w-full max-w-md p-6 space-y-4"
+              className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 w-full max-w-md max-h-[calc(100dvh-0.5rem)] sm:max-h-[90vh] overflow-hidden flex flex-col p-0"
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-5 pt-5 shrink-0">
                 <div>
                   <h3 className="font-extrabold text-slate-800 text-base">Identifikasi Wilayah Asal KK</h3>
                   <p className="text-xs text-slate-500 font-medium">
@@ -2368,9 +2368,10 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                 </button>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Pilih Kategori Wilayah KK:
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Pilih Kategori Wilayah KK:
                 </label>
                 <div className="space-y-2">
                   {[
@@ -2517,7 +2518,9 @@ export const MobileDokumen = ({ onBack, currentUser, onUpdateUser }: { onBack: (
                 </p>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              </div>
+
+              <div className="shrink-0 border-t border-slate-100 bg-white px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] flex gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingKkRegionTarget(null)}
